@@ -1,2 +1,237 @@
 ## main.seq
 ## seq script which runs EMA alignment pipeline.
+
+import sys
+import getopt
+from bio.bwa import *
+
+MB = 1048576
+GB = 1073741824
+
+# Exit the program with success value
+def exit_success():
+    sys.exit(0)
+
+# Exit the program with failure value
+def exit_failure():
+    sys.exit(1)
+
+# Print IO error failure message and exit the program with a failure
+def io_error(filename: str):
+    print "Error: File {0} could not be opened".format(filename)
+    exit_failure()
+
+# Run the main program
+def main(argc: int, argv: list[str]) -> None:
+    if argc < 2:
+        # Why on earth does seq not use python3-style print() as a function??
+        print "EMA-seq version {0}".format(VERSION)
+        print "Note: Use '{0} help' for usage information".format(argv[0])
+        exit_success()
+    
+    mode = argv[1]
+
+    if mode == "preproc":
+        run_preproc(argv[2:])
+    elif mode == "count":
+        run_count(argv[2:])
+    elif mode == "align":
+        run_align(argv[2:])
+    elif mode == "help":
+        print_help()
+        exit_success()
+    else:
+        print "Error: Unrecognized mode"
+        print_help()
+        exit_failure()
+
+# Print the help message
+def print_help():
+    print "Help message"
+
+# Parse options & run preprocessing mode
+def run_preproc(options: list[str]):
+    opts, unused_opts = getopt.getopt(options, "w:n:hbo:t:")
+
+    wl = str()
+    nbuckets = 500
+    do_h2 = False
+    out = str()
+    t = 1
+    do_bx_format = False
+
+    for hyphenated_opt, value in opts:
+        opt = hyphenated_opt[1]
+        if opt == 'w':
+            wl = value                
+        elif opt == 'n':
+            nbuckets = int(value)
+        elif opt == 'h':
+            do_h2 = True
+        elif opt == 'o':
+            out = value
+        elif opt == 't':
+            t = int(value)
+        elif opt == 'b':
+            do_bx_format = True
+        else:
+            print_help()
+            exit_failure()
+
+    if len(wl) == 0:
+        print "Error: Specify barcode whitelist with -w"
+        exit_failure()
+
+    if len(out) == 0
+        print "Error: Specify output directory with -o"
+        exit_failure()
+
+    if len(unused_opts) == 0:
+        print "Warning: No input files specified; nothing to do"
+        exit_success()
+
+    Preproc.preproc(wl, unused_opts, len(unused_opts), out, do_h2, 10*MB, do_bx_format, t, nbuckets)
+    exit_success()
+
+# Parse options & run count mode
+def run_count(options: list[str]):
+    opts, unused_opts = getopt.getopt(options, "w:o:")
+    
+    wl = str()
+    out = str()
+
+    for hyphenated_opt, value in opts:
+        opt = hyphenated_opt[1]
+        if opt == 'w':
+            wl = value
+        elif opt == 'o':
+            out = value
+        else:
+            print_help()
+            exit_failure()
+    
+    if len(wl) == 0:
+        print "Error: Specify barcode whitelist with -w"
+        exit_failure()
+
+    if len(out) == 0:
+        print "Error: Specify output prefix with -o"
+        exit_failure()
+
+    Count.count(wl, out, 1*GB)
+    exit_success()
+
+# Parse options & run align mode
+def run_align(options: list[str]):
+    opts, unused_opts = getopt.getopt(options, "r:1:2:s:xo:R:dp:i:t:")
+
+    # Declare parameters
+    rg = "@RG\tID:rg1\tSM:sample1" # TODO: make global?
+    ref = str()
+    fq1 = str()
+    fq2 = str()
+    fqx = str()
+    fai = str()
+    out = str()
+    apply_opt = False
+    multi_input = False
+    platform = "10x"
+    bx_index = "1" # TODO: make global?
+    t = 1
+
+    # Parse options
+    for hyphenated_opt, value in opts:
+        opt = hyphenated_opt[1]
+        if opt == 'r':
+            ref = value
+        elif opt == '1':
+            fq1 = value
+        elif opt == '2':
+            fq2 = value
+        elif opt == 's':
+            fqx = value
+        elif opt == 'x':
+            multi_input = True
+        elif opt == 'o':
+            out = value
+        elif opt == 'R':
+            rg = escape(value) # TODO: investigate 'escape' meaning
+        elif opt == 'd':
+            apply_opt = True
+        elif opt == 'p':
+            platform = value
+        elif opt == 'i':
+            bx_index = value
+        elif opt == 't':
+            t = int(value)
+        else:
+            print_help()
+            exit_failure()
+
+    # Validate options
+    if multi_input ^ (len(fqx) != 0) ^ (len(fq1) != 0 or len(fq2) != 0):
+        print "Error: Must specify *exactly one* of -1/-2, -s, or -x"
+        exit_failure()
+
+    if len(fq1) == 0 and len(fq2) != 0:
+        print "Error: Cannot specify -2 without -1"
+        exit_failure()
+
+    if len(ref) == 0:
+        print "Error: Specify reference FASTA with -r"
+        exit_failure()
+
+    if len(rg) != 0 and not validate_read_group(rg): # TODO: investigate validate_read_group
+        print "Error: Malformed read group: {0}".format(rg)
+        exit_failure()
+
+    tech = get_platform_profile_by_name(platform) # TODO: investigate get_platform_profile_by_name
+    if len(tech) == 0:
+        print "Error: Invalid platform name: {0}".format(platform)
+        exit_failure()
+
+    # Parse remaining parameters
+    # TODO: lines 310-341, if necessary. Might not be, if seq can be leveraged.
+    out_file = sys.stdout if len(out) == 0 else open(out, "w")
+    fai = ref + ".fai"
+    fai_file = open(fai, "r")
+    # TODO: lines 351-356, if necessary. Might not be, if seq can be leveraged.
+
+    bwa = BWA(ref)
+    write_sam_header(out_file) # TODO: this. I think this is just dealing w/ SAM format. seq should be able to avoid this.
+    
+    if multi_input:
+        # TODO: make these global?
+        num_threads_for_files = t
+        num_threads_per_file = 1
+
+        if len(unused_opts) == 0:
+            print "Warning: No input files specified; nothing to do"
+            exit_success()
+
+        open_input_files = list[File]() # TODO: better
+        for f in unused_opts:
+            open_input_files.append(open(f, "r")) # TODO: better; try/catch
+
+        # TODO: parallelize across num_threads_for_files
+        for input_file in open_input_files:
+            find_clouds_and_align(None, None, input_file, out_file, apply_opt)
+            close(input_file)
+
+    else:
+        # TODO: make these global? or else params
+        num_threads_for_files = 1
+        num_threads_per_file = t
+
+        # note: either fq1_file & fq2_file or fqx_file are null
+        find_clouds_and_align(fq1_file, fq2_file, fqx_file, out_file, apply_opt)
+        if fq1_file: close(fq1_file)
+        if fq2_file and fq2_file != fq1_file: close(fq2_file)
+        if fqx_file: close(fqx_file)
+
+    close(out_file)
+    exit_success()
+
+
+# Run main program
+main(len(sys.argv), sys.argv)
