@@ -163,16 +163,16 @@ def run_align(options: list[str]):
     opts, unused_opts = getopt.getopt(options, "r:1:2:s:xo:R:dp:i:t:")
 
     # Declare parameters
-    rg = "@RG\tID:rg1\tSM:sample1" # read group
-    ref = str()
-    fq1 = str()
-    fq2 = str()
-    fqx = str()
-    fai = str()
-    out = str()
-    apply_opt = False
-    multi_input = False
-    platform = "10x"
+    rg = str() # read group
+    ref = str() # reference genome file
+    fq1 = str() # first fastq file
+    fq2 = str() # (optional) second fastq file
+    fqx = str() # special fastq file
+    fai = str() # fasta index file
+    out = str() # output file
+    apply_opt = False # -d optimization
+    multi_input = False # multiple input flag
+    platform = "10x" # technology
     bx_index = "1" # TODO: make global?
     t = 1
 
@@ -249,13 +249,13 @@ def run_align(options: list[str]):
 
         # TODO: parallelize across t threads
         for input_file in open_input_files:
-            find_clouds_and_align_special_fastq(input_file, out_file, apply_opt, tech, 1)
+            find_clouds_and_align_special_fastq(input_file, out_file, apply_opt, tech, rg, 1)
             input_file.close()
 
     elif len(fqx) != 0:
         fqx_file = open(fqx, "r")
 
-        find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, t)
+        find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rg, t)
 
         fqx_file.close()
 
@@ -263,7 +263,7 @@ def run_align(options: list[str]):
         fq1_file = FASTQ(fq1)
         fq2_file = FASTQ(fq2) if len(fq2) != 0 else fq1_file
 
-        find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, t)
+        find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, rg, t)
 
     out_file.close()
     exit_success()
