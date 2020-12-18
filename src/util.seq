@@ -30,7 +30,7 @@ def escape(s: str)-> str:
     return q
 
 # Normalize log probabilities of an array, in-place
-def normalize_log_probabilities(probs: list[float]):
+def normalize_log_probabilities(probs: list[float])-> None:
     epsilon = 1e-50
     n = len(probs)
 
