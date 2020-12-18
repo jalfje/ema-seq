@@ -1,0 +1,56 @@
+from data import *
+
+# Extracts barcode from and modifies id
+def extract_barcode_10x(rec: FastQRecord)-> bc_t:
+    last_colon_idx = rec.ident.rindex(':')
+    bc = encode_barcode(rec.ident[last_colon_idx+1:])
+    rec.ident = rec.ident[:last_colon_idx]
+    try:
+        first_space_idx = rec.ident.index(' ')
+        rec.ident = rec.ident[:first_space_idx]
+    except ValueError:
+        pass
+
+    return bc
+
+# Extracts barcode from id
+def extract_barcode_truseq(rec: FastQRecord)-> bc_t:
+    bc = rec.ident[1:] if rec.ident[0] == '@' else rec.ident
+    return bc_t(int(bc))
+
+# Extracts barcode from and modifies id
+def extract_barcode_cptseq(rec: FastQRecord)-> bc_t:
+    last_colon_idx = rec.ident.rindex(':')
+    bc = bc_t(int(rec.ident[last_colon_idx+3:]))
+    rec.ident = rec.ident[:last_colon_idx]
+
+    return bc
+
+# Class holding parameter profile for a platform
+class PlatformProfile:
+    name: str
+    extract_barcode: function[bc_t, FastQRecord]
+    many_clouds: bool
+    dist_thresh: int
+    error_rate: float
+    density_probs: list[float]
+    def __init__(self: PlatformProfile,
+                 name: str,
+                 extract_barcode: function[bc_t, FastQRecord],
+                 many_clouds: bool,
+                 dist_thresh: int,
+                 error_rate: float,
+                 density_probs: list[float]):
+        self.name = name
+        self.extract_barcode = extract_barcode
+        self.many_clouds = many_clouds
+        self.dist_thresh = dist_thresh
+        self.error_rate = error_rate
+        self.density_probs = density_probs
+
+# Dict containing profiles for all supported platforms
+platform_profiles = {
+    "10x": PlatformProfile("10x", extract_barcode_10x, False, 50000, 0.001, [0.6, 0.05, 0.2, 0.01]),
+    "tru": PlatformProfile("tru", extract_barcode_truseq, True, 15000, 0.001, [0.6, 0.05, 0.2, 0.01]),
+    "cpt": PlatformProfile("cpt", extract_barcode_cptseq, True, 3500, 0.01, [0.6, 0.01, 0.15, 0.001, 0.05, 0.001, 0.02, 0.001, 0.01])
+}
