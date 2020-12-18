@@ -1,0 +1,27 @@
+## util.seq
+# Contains various utility functions
+
+def validate_read_group(read_group: str)-> bool:
+    return read_group.find("@RG\t") == 0 and read_group.find("\tID:") != -1
+
+def escape(s: str)-> str:
+    q = str()
+    i = 0
+    while i < len(s):
+        if s[i] == '\\':
+            i += 1
+            if i == len(s):
+                break
+            if s[i] == 't':
+                q += '\t'
+            elif s[i] == 'n':
+                q += '\n'
+            elif s[i] == 'r':
+                q += '\r'
+            elif s[i] == '\\':
+                q += '\\'
+        else:
+            q += s[i]
+        i += 1
+
+    return q
