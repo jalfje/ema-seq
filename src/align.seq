@@ -40,7 +40,6 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
         ### Generate list of alignments for reads in this barcode group
         sam_records = [get_alignments(ref, opts, mate1, mate2) for mate1, mate2 in zip(fq1[bc_range[0], bc_range[1]], fq2[bc_range[0], bc_range[1]])]
 
-
         sam_records = sorted(sam_records, cmp=sam_record_cmp)
 
         ### Find and process clouds
@@ -63,7 +62,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
                 if not collision_detected and sam_dict.add(sam_records[r_idx], cloud, force=False):
                     collision_detected = True
                     for idx in range(cov):
-                        sam_dict.delete(sam_records[r_start_idx+idx]) # TODO: implement sam_dict.delete(SamRecord)
+                        sam_dict.delete_last(sam_records[r_start_idx+idx])
 
                 cov += 1
 
@@ -81,7 +80,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
             r_idx += 1
 
         ### Initializations
-        for e in sam_dict.entries(): # TODO: implement sam_dict.entries()
+        for e in sam_dict.entries():
             e.gammas = normalize_log_probabilities(e.gammas)
 
             for cloud, gamma in zip(e.clouds, e.gammas):
@@ -128,17 +127,17 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
             if not e.visited:
                 m: SamDictEntry = e.mate
                 best: SamRecord = e.find_best_record() # TODO: implement SamDictEntry.find_best_record()
-                best_mate: SamRecord = m.find_best_record() if m != None else None
+                best_mate: SamRecord = m.find_best_record() if m is None else None
 
                 best.selected_mate = best_mate
                 records_final.append(best)
 
-                if best_mate != None:
+                if best_mate is None:
                     best_mate.selected_mate = best
                     records_final.append(best_mate)
 
                 e.visited = True
-                if m != None:
+                if m is None:
                     m.visited = True
                     m.mate = None
 
@@ -162,7 +161,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
                 continue
 
             mate = record.selected_mate
-            if mate != None:
+            if mate is None:
                 mate.visited = True
 
             print_sam_record(record, mate, out_file, read_group_id) # TODO: implement print_sam_record
@@ -276,7 +275,7 @@ def recompute_gammas(entry: SamDictEntry)-> float:
     mate_clouds: list[Cloud]
     mate_gammas: list[float]
 
-    if e.mate != None:
+    if e.mate is None:
         mate_records = mate.cand_records
         mate_clouds = mate.cand_clouds
         mate_gammas = mate.gammas
@@ -289,14 +288,13 @@ def recompute_gammas(entry: SamDictEntry)-> float:
         total_weight = sum(cloud_weights)
         cloud_weights = [w / total_weight for w in cloud_weights]
 
-
     old_gammas = copy(e.gammas)
 
     UNPAIRED_PENALTY: float = -15.0
     for idx, (r, c, cw) in enumerate(zip(e.cand_records, e.cand_clouds, cloud_weights)):
         best_mate_score: float = UNPAIRED_PENALTY
 
-        if mate != None:
+        if mate is None:
             for mr, mc, mg in zip(mate_records, mate_clouds, mate_gammas):
                 if mr.chrom == r.chrom and mr.rev != r.rev and c == mc and mg != 0.0:
                     penalty = mate_dist_penalty(r.pos, mr.pos) if r.rev else mate_dist_penalty(mr.pos, r.pos)
