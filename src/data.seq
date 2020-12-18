@@ -30,7 +30,8 @@ def encode_barcode(bc: str)-> bc_t:
 
 
 
-### Cloud
+### Clouds
+
 
 _cloud_id = 0
 class Cloud:
@@ -57,36 +58,29 @@ class Cloud:
         _cloud_id += 1
         self.bad = False
 
+def normalize_cloud_probabilities(clouds: list[Cloud]):
+    # Find parent clouds, and normalize all child clouds based on that
+    for cloud in clouds:
+        if cloud.parent != None:
+            continue
+
+        total = 0.0
+        c = cloud
+        while c != None:
+            total += c.weight
+            c = c.child
+
+        c = cloud
+        while c != None:
+            c.weight /= total
+            c = c.child
+
+
 
 ### SamRecord
 
 
-def sam_record_cmp(record1: SamRecord, record2: SamRecord)-> int:
-    bc1 = record1.barcode
-    bc2 = record2.barcode
-    cmp_result = int(bc1 > bc2) - int(bc1 < bc2)
-    if cmp_result != 0:
-        return cmp_result
-
-    chrom1 = record1.chrom
-    chrom2 = record2.chrom
-    cmp_result = int(chrom1 > chrom2) - int(chrom1 < chrom2)
-    if cmp_result != 0:
-        return cmp_result
-
-    pos1 = record1.pos
-    pos2 = record2.pos
-    cmp_result = int(pos1 > pos2) - int(pos1 < pos2)
-    if cmp_result != 0:
-        return cmp_result
-
-    ident1 = record1.ident
-    ident2 = record2.ident
-    cmp_result = int(ident1 > ident2) - int(ident1 < ident2)
-
-    return cmp_result
-
-# Needed to implement this myself because Seq's native implementation is too hamstrung
+# Needed to implement this myself because Seq's native implementation is sorely lacking
 class SamRecord:
     barcode: bc_t
     chrom: chrom_t
@@ -122,3 +116,42 @@ class SamRecord:
 
     def __init__(self: SamRecord):
         pass
+
+def sam_record_cmp(record1: SamRecord, record2: SamRecord)-> int:
+    bc1 = record1.barcode
+    bc2 = record2.barcode
+    cmp_result = int(bc1 > bc2) - int(bc1 < bc2)
+    if cmp_result != 0:
+        return cmp_result
+
+    chrom1 = record1.chrom
+    chrom2 = record2.chrom
+    cmp_result = int(chrom1 > chrom2) - int(chrom1 < chrom2)
+    if cmp_result != 0:
+        return cmp_result
+
+    pos1 = record1.pos
+    pos2 = record2.pos
+    cmp_result = int(pos1 > pos2) - int(pos1 < pos2)
+    if cmp_result != 0:
+        return cmp_result
+
+    ident1 = record1.ident
+    ident2 = record2.ident
+    cmp_result = int(ident1 > ident2) - int(ident1 < ident2)
+    return cmp_result
+
+def sam_name_cmp(record1: SamRecord, record2: SamRecord)-> int:
+    ident1 = record1.ident
+    ident2 = record2.ident
+    cmp_result = int(ident1 > ident2) - int(ident1 < ident2)
+    if cmp_result != 0:
+        return cmp_result
+
+    m1 = record1.mate
+    m2 = record2.mate
+    cmp_result = int(m1 > m2) - int(m1 < m2)
+    return cmp_result
+
+def sam_duplicate_cmp(record1: SamRecord, record2: SamRecord)-> int:
+    pass
