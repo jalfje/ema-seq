@@ -4,37 +4,39 @@
 from data import *
 from samrecord import *
 
-def find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, threads_per_file):
-    pass
+def find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, read_group, threads_per_file):
+    pass # Likely will not implement, but might
 
-def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, threads_per_file):
+def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, read_group, threads_per_file):
     fq1, fq2 = read_special_fastq(fqx_file)
     assert(len(fq1) == len(fq2))
 
     # TODO: parallelize by threads_per_file
-    MAX_CLOUDS_PER_BC_LARGE = 10000000 # TODO: move these elsewhere
-    MAX_CLOUDS_PER_BC_SMALL = 1000000 # TODO: move these elsewhere
+    MAX_CLOUDS_PER_BC_LARGE = 10000000
+    MAX_CLOUDS_PER_BC_SMALL = 1000000
+    EM_ITERS = 5
     max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
-    num_clouds = 0
+    read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:]
 
-    clouds = list[Cloud]()
-
-    cur_record_idx = 0
+    bc_group_end_idx = 0
     total_records = len(fq1)
-    while cur_record_idx < total_records:
-        fq1_bc_group_range = seek_next_barcode_group(fq1, cur_record_idx)
-        fq2_bc_group_range = seek_next_barcode_group(fq2, cur_record_idx) # returns 2-tuple, [first, last) indices
+    sam_dict: SamDict # TODO: implement this? or else convert to simple dict. but this has more functionality.
+    while bc_group_end_idx < total_records:
+        clouds = list[Cloud]()
 
+        ### Get barcode group
+        fq1_bc_group_range = seek_next_barcode_group(fq1, bc_group_end_idx)
+        fq2_bc_group_range = seek_next_barcode_group(fq2, bc_group_end_idx)
         assert(fq1_bc_group_range == fq2_bc_group_range)
+        bc_range = fq1_bc_group_range # once verified as equal, simplify name
 
-        bc_range = fq1_bc_group_range
+        bc_group_end_idx = bc_range[1] # update end index for outer loop
 
-        cur_record_idx = bc_range[1]
-
-        barcode = fq1[fq1_bc_group_range[0]].barcode
+        barcode = fq1[bc_range[0]].barcode # get actual barcode
         worth_doing_full_em = (bc_range[1] - bc_range[0]) >= 30
 
         # TODO: ensure ref and opts are accessible here.
+        ### Generate list of alignments for reads in this barcode group
         sam_records = [get_alignments(ref, opts, mate1, mate2) for mate1, mate2 in zip(fq1[bc_range[0], bc_range[1]], fq2[bc_range[0], bc_range[1]])]
 
         n_records_final = 0
@@ -42,8 +44,113 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, thr
 
         sam_records = sorted(sam_records, cmp=sam_record_cmp)
 
-        for record in sam_records:
-            assert(num_clouds < max_clouds)
+        ### Find and process clouds
+        r_idx = 0
+        while r_idx < len(sam_records) and sam_records[r_idx].barcode == barcode:
+            r_start_idx = r_idx
+            assert(len(clouds) < max_clouds)
+            cloud = Cloud()
+            clouds.append(cloud)
+
+            sam_dict.add(sam_records[r_idx], cloud, force=False)
+            cov = 1
+            collision_detected = False
+            while (r_idx+1 < len(sam_records) and
+                   sam_records[r_idx+1].barcode == sam_records[r_idx].barcode and
+                   sam_records[r_idx+1].chrom == sam_records[r_idx].chrom and
+                   sam_records[r_idx+1].pos - sam_records[r_idx].pos <= tech.dist_thresh):
+                r_idx += 1
+
+                if not collision_detected and sam_dict.add(sam_records[r_idx], cloud, force=False):
+                    collision_detected = True
+                    for idx in range(cov):
+                        sam_dict.delete(sam_records[r_start_idx+idx]) # TODO: implement sam_dict.delete(SamRecord)
+
+                cov += 1
+
+            if collision_detected:
+                cloud.bad = True
+                cloud_to_split = sorted(sam_records[r_start_idx:r_start_idx+cov], cmp=sam_name_cmp)
+
+                # This is the -d flag. Not implementing for the project.
+                #if apply_opt:
+                #    mark_optimal_alignments_in_cloud(cloud_to_split)
+
+                for rec in cloud_to_split:
+                    sam_dict.add(rec, cloud, force=True) # TODO: implement sam_dict.add(SamRecord, Cloud, force)
+
+            r_idx += 1
+
+        ### Initializations
+        for e in sam_dict.entries(): # TODO: implement sam_dict.entries()
+            e.gammas = normalize_log_probabilities(e.gammas)
+
+            for cloud, gamma in zip(e.clouds, e.gammas):
+                cloud.exp_cov += gamma
+
+        # Compute cloud scores
+        for cloud in clouds:
+            cloud.weight = cloud.exp_cov
+
+        if not tech.many_clouds:
+            normalize_cloud_probabilities(clouds)
+
+        ### Expectation-Maximization iterations
+        for q in range(EM_ITERS):
+            if not worth_doing_full_em:
+                break
+
+            old_gammas = list[float]()
+            max_change = 0.0
+
+            for cloud in clouds:
+                cloud.exp_cov = 0.0
+
+            # Recompute gammas
+            for e in sam_dict.entries():
+                pass # TODO: TODO: TODO:
+
+            for e in sam_dict.entries():
+                for r, c, g in zip(e.cand_records, e.cand_clouds, e.gammas):
+                    if r.active and not r.duplicate:
+                        c.exp_cov += g
+
+            # Recompute cloud scores
+            for cloud in clouds:
+                cloud.weight = cloud.exp_cov
+
+            if not tech.many_clouds:
+                normalize_cloud_probabilities(clouds)
+
+        ### Find best alignments
+        # TODO:
+
+        ### Skip duplicates
+        if not tech.many_clouds:
+            records_final = sorted(records_final, cmp=sam_duplicate_cmp)
+
+            i = 0
+            while i < n_records_final:
+                j = i + 1
+                while j < n_records_final and sam_duplicate_cmp(records_final[i], records_final[j]) == 0:
+                    records_final[j].duplicate = True
+                    j += 1
+                i = j
+
+        # TODO: implement print_sam_record(mate1, mate2, out_file, readgroupid)
+        ### Print records
+        for record in records_final:
+            if record.visited:
+                continue
+
+            mate = record.selected_mate
+            if mate != None:
+                mate.visited = True
+
+            print_sam_record(record, mate, out_file, read_group_id) # TODO: implement print_sam_record
+            print_sam_record(mate, record, out_file, read_group_id)
+
+
 
 
 
