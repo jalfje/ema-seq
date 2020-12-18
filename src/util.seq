@@ -1,9 +1,12 @@
 ## util.seq
 # Contains various utility functions
+import math
 
+# Validate read group name
 def validate_read_group(read_group: str)-> bool:
     return read_group.find("@RG\t") == 0 and read_group.find("\tID:") != -1
 
+# Convert escape sequences to special characters in a string
 def escape(s: str)-> str:
     q = str()
     i = 0
@@ -25,3 +28,24 @@ def escape(s: str)-> str:
         i += 1
 
     return q
+
+# Normalize log probabilities of an array, in-place
+def normalize_log_probabilities(probs: list[float]):
+    epsilon = 1e-50
+    n = len(probs)
+
+    if n == 1:
+        probs[0] = 1.0
+        return
+
+    thresh: float = math.log(epsilon) - math.log(float(n))
+    p_max: float = max(probs)
+
+    for idx, p in enumerate(probs):
+        probs[idx] = 0.0 if p - p_max < thresh else math.exp(p - p_max)
+
+    total: float = sum(probs)
+
+    for idx, p in enumerate(probs):
+        probs[idx] = p / total
+
