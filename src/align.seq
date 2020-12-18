@@ -1,2 +1,152 @@
 ## align.seq
 ## Script which performs EMA alignment.
+
+from data import *
+from samrecord import *
+
+def find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, threads_per_file):
+    pass
+
+def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, threads_per_file):
+    fq1, fq2 = read_special_fastq(fqx_file)
+    assert(len(fq1) == len(fq2))
+
+    # TODO: parallelize by threads_per_file
+    MAX_CLOUDS_PER_BC_LARGE = 10000000 # TODO: move these elsewhere
+    MAX_CLOUDS_PER_BC_SMALL = 1000000 # TODO: move these elsewhere
+    max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
+    num_clouds = 0
+
+    clouds = list[Cloud]()
+
+    cur_record_idx = 0
+    total_records = len(fq1)
+    while cur_record_idx < total_records:
+        fq1_bc_group_range = seek_next_barcode_group(fq1, cur_record_idx)
+        fq2_bc_group_range = seek_next_barcode_group(fq2, cur_record_idx) # returns 2-tuple, [first, last) indices
+
+        assert(fq1_bc_group_range == fq2_bc_group_range)
+
+        bc_range = fq1_bc_group_range
+
+        cur_record_idx = bc_range[1]
+
+        barcode = fq1[fq1_bc_group_range[0]].barcode
+        worth_doing_full_em = (bc_range[1] - bc_range[0]) >= 30
+
+        # TODO: ensure ref and opts are accessible here.
+        sam_records = [get_alignments(ref, opts, mate1, mate2) for mate1, mate2 in zip(fq1[bc_range[0], bc_range[1]], fq2[bc_range[0], bc_range[1]])]
+
+        n_records_final = 0
+        records_final = list[SamRecord](2 * (bc_range[1] - bc_range[0]))
+
+        sam_records = sorted(sam_records, cmp=sam_record_cmp)
+
+        for record in sam_records:
+            assert(num_clouds < max_clouds)
+
+
+
+
+
+# Compare two lines containing specially-formatted fastq records, by their barcode.
+def special_fastq_record_cmp(line1: str, line2: str)-> int:
+    return int(line1[0:16] > line2[0:16]) - int(line1[0:16] < line2[0:16])
+
+# Special FASTQ file format:
+#   barcode read1 id qual1 read2 qual2
+#
+# `read1` and `qual1` have the barcode bases/quals trimmed.
+def read_special_fastq(fqx_file)-> tuple[list[FastQRecord], list[FastQRecord]]:
+    records = sorted([line for line in fqx_file], cmp=special_fastq_record_cmp)
+
+    fq1 = list[FastQRecord]()
+    fq2 = list[FastQRecord]()
+
+    for record in records:
+        # values has the following format:
+        # [0]: barcode [1]: read1 [2]: id [3]: qual1 [4]: read2 [5]: qual2
+        values = record.split(" ")
+        barcode = encode_barcode(values[0])
+
+        fq1.append(FastQRecord(barcode, values[2], values[1], values[3]))
+        fq2.append(FastQRecord(barcode, values[2], values[4], values[5]))
+
+    return (fq1, fq2)
+
+# Get indices of next barcode group, based on last index of previous (assumes record list sorted by barcode)
+def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[int, int]:
+    idx = start_idx
+    barcode = records[idx].barcode
+    while idx < len(records) and records[idx].barcode == barcode:
+        idx += 1
+    return (start_idx, idx)
+
+# TODO: finish implementing subroutines/interfacing with BWA
+def get_alignments(ref, opts, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
+    # ref & opts are only ever passed to subcommands
+
+    mate1_len = len(mate1.read)
+    mate2_len = len(mate2.read)
+
+    EXTRA_SEARCH_DEPTH = 12
+
+    # TODO: implement
+    alignments: EasyAlignmentPairs = bwa_mem_mate_sw(ref, opts, mate1.read, mate1_len, mate2.read, mate2_len, 25)
+    best_dist = -1
+    aligns_added1 = 0
+    aligns_added2 = 0
+
+    sam_records = list[SamRecord]()
+
+    is_first = True
+    for a in alignments.a1:
+        # TODO: implement
+        r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate1.read, mate1_len, a.chained_hit)
+
+        clip = mate1_len - (a.read_end - a.read_start)
+
+        if clip >= mate1_len / 2
+            continue
+
+        dist = r.edit_dist + clip
+        if is_first = True:
+            best_dist = dist
+            is_first = False
+        elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
+            continue
+
+        # TODO: implement
+        r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
+        # TODO: implement
+        sam_records.append(alignment_to_sam_record(mate1, mate2, r, False, clip, dist))
+        aligns_added1 += 1
+
+    if aligns_added1 == 1:
+        sam_records[-1].unique = True
+
+    is_first = True
+    for a in alignments.a2:
+        r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate2.read, mate2_len, a.chained_hit)
+
+        clip = mate2_len - (a.read_end - a.read_start)
+
+        if clip >= mate2_len / 2
+            continue
+
+        dist = r.edit_dist + clip
+        if is_first = True:
+            best_dist = dist
+            is_first = False
+        elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
+            continue
+
+        r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
+        sam_records.append(alignment_to_sam_record(mate2, mate1, r, True, clip, dist))
+        aligns_added2 += 1
+
+    if aligns_added2 == 1:
+        sam_records[-1].unique = True
+
+    return sam_records
+
