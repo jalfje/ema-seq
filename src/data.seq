@@ -1,0 +1,124 @@
+## data.seq
+# Various data class and type definitions
+
+type bc_t = int
+type chrom_t = int
+
+# FastQRecord: Contains data for a single barcoded FASTQ record
+class FastQRecord(object):
+    barcode: bc_t
+    ident: str
+    read: str
+    qual: str
+
+    def __init__(self: FastQRecord, barcode: bc_t, ident: str, read: str, qual: str):
+        self.barcode = barcode
+        self.ident = ident
+        self.read = read
+        self.qual = qual
+
+# Barcodes are 16-element sequences (ACGT/acgt). This converts them to a 32-bit integer,
+# with higher bits based on later elements.
+encode_barcode_dict = {'a': bc_t(0), 'c': bc_t(1), 'g': bc_t(2), 't': bc_t(3),
+                       'A': bc_t(0), 'C': bc_t(1), 'G': bc_t(2), 'T': bc_t(3)}
+def encode_barcode(bc: str)-> bc_t:
+    encoded = bc_t(0)
+    for c in reversed(bc):
+        encoded <<= 2
+        encoded += encode_barcode_dict[c]
+    return encoded
+
+
+
+### Cloud
+
+_cloud_id = 0
+class Cloud:
+    exp_cov: float
+    weight: float
+
+    hi: int
+    lo: int
+
+    parent: Cloud
+    child: Cloud
+
+    ident: int
+    bad: bool
+
+    def __init__(self: Cloud):
+        self.exp_cov = 0.0
+        self.weight = 0.0
+        self.hi = 0
+        self.lo = 0
+        self.parent = None
+        self.child = None
+        self.ident = _cloud_id
+        _cloud_id += 1
+        self.bad = False
+
+
+### SamRecord
+
+
+def sam_record_cmp(record1: SamRecord, record2: SamRecord)-> int:
+    bc1 = record1.barcode
+    bc2 = record2.barcode
+    cmp_result = int(bc1 > bc2) - int(bc1 < bc2)
+    if cmp_result != 0:
+        return cmp_result
+
+    chrom1 = record1.chrom
+    chrom2 = record2.chrom
+    cmp_result = int(chrom1 > chrom2) - int(chrom1 < chrom2)
+    if cmp_result != 0:
+        return cmp_result
+
+    pos1 = record1.pos
+    pos2 = record2.pos
+    cmp_result = int(pos1 > pos2) - int(pos1 < pos2)
+    if cmp_result != 0:
+        return cmp_result
+
+    ident1 = record1.ident
+    ident2 = record2.ident
+    cmp_result = int(ident1 > ident2) - int(ident1 < ident2)
+
+    return cmp_result
+
+# Needed to implement this myself because Seq's native implementation is too hamstrung
+class SamRecord:
+    barcode: bc_t
+    chrom: chrom_t
+    pos: int
+
+    ident: str
+    score: float
+    mapq: int # BWA MEM's mapq
+    score_mapq: int # Our computed mapq
+    clip: int
+    clip_edit_dist: int # Edit distance including clipping
+
+    self_hash: int
+    mate_hash: int
+
+    mate: bool
+    rev: bool
+    self_hashed: bool
+    mate_hashed: bool
+    duplicate: bool
+    unique: bool
+    active: bool
+    visited: bool
+
+    gamme: float
+    cloud: Cloud # pointer to cloud containing this record
+
+    fq: FastQRecord # Pointer to read that this was from
+    fq_mate: FastQRecord # Pointer to read that the mate was from
+
+    selected_mate: SamRecord
+    alignment: SingleReadAlignment
+
+    def __init__(self: SamRecord):
+        pass
