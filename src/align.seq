@@ -329,8 +329,12 @@ def find_clouds_and_align_special_fastq(bwa: seq_bwa.BWA, fqx_file, out_file, ap
     MAX_CLOUDS_PER_BC_LARGE = 10000000
     MAX_CLOUDS_PER_BC_SMALL = 1000000
     EM_ITERS = 5
+    INDEL_RATE = 0.0001
+    CLIP_RATE = 0.03
+
     max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
     read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:].split()[0]
+    init_alignment_score_weights(tech.error_rate, INDEL_RATE, CLIP_RATE)
 
     bc_group_end_idx = 0
     total_records = len(fq1)

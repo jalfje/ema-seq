@@ -78,6 +78,33 @@ def normalize_cloud_probabilities(clouds: list[Cloud]):
 
 ### SamRecord
 
+
+
+# For scoring alignments
+LOG_MATCH_SCORE: float = 0.0
+LOG_MISMATCH_SCORE: float = 0.0
+LOG_INDEL_SCORE: float = 0.0
+LOG_CLIP_SCORE: float = 0.0
+LOG10_MISMATCH_SCORE: float = 0.0
+LOG10_INDEL_SCORE: float = 0.0
+LOG10_CLIP_SCORE: float = 0.0
+def init_alignment_score_weights(error_rate: float, indel_rate: float, clip_rate: float):
+    global LOG_MATCH_SCORE
+    global LOG_MISMATCH_SCORE
+    global LOG_INDEL_SCORE
+    global LOG_CLIP_SCORE
+    global LOG10_MISMATCH_SCORE
+    global LOG10_INDEL_SCORE
+    global LOG10_CLIP_SCORE
+
+    LOG_MATCH_SCORE = math.log(1.0 - error_rate)
+    LOG_MISMATCH_SCORE = math.log(error_rate)
+    LOG_INDEL_SCORE = math.log(indel_rate)
+    LOG_CLIP_SCORE = math.log(clip_rate)
+    LOG10_MISMATCH_SCORE = math.log10(error_rate)
+    LOG10_INDEL_SCORE = math.log10(indel_rate)
+    LOG10_CLIP_SCORE = math.log10(clip_rate)
+
 class Alt:
     chrom: str
     pos: int
@@ -121,6 +148,38 @@ class SamRecord:
     def __init__(self: SamRecord):
         self.alts = list[Alt]()
 
+    def score_alignment(self: SamRecord, aln: SingleReadAlignment):
+        matches = 0
+        mismatches = 0
+        indels = 0
+        indels_to_count = 0
+        clipping = 0
+
+        cigar = aln.cigar
+        for num, op in cigar:
+            match op:
+                case "M":
+                    matches += num
+                case "I" or "D":
+                    indels += num
+                    indels_to_count += 1
+                case "S" or "H": # Not sure if this is exactly right, given how the cigar strings are generated
+                    clipping += num
+                case _:
+                    assert(False)
+
+        mismatches = aln.edit_dist - indels
+        matches -= mismatches
+        self.mapq = aln.mapq
+        self.score = (matches * LOG_MATCH_SCORE
+                    + mismatches * LOG_MISMATCH_SCORE
+                    + indels_to_count * LOG_INDEL_SCORE
+                    + clipping * LOG_CLIP_SCORE)
+        self.score_mapq = int(60.0
+                        + mismatches * LOG10_MISMATCH_SCORE
+                        + indels_to_count * LOG10_INDEL_SCORE
+                        + clipping * LOG10_CLIP_SCORE)
+
     # For bwa bridge. Equivalent to align::alignment_to_sam_rec
     def __init__(self: SamRecord, fq: FastQRecord, fq_mate: FastQRecord, aln: SingleReadAlignment,
                  mate: bool, clip: int, clip_edit_dist: int):
@@ -130,7 +189,7 @@ class SamRecord:
 
         self.ident = fq.ident[1:] # skip leading @
 
-        #score_alignment(r, s) # TODO: score_alignment
+        self.score_alignment(aln)
 
         self.fq = fq
         self.fq_mate = fq_mate
