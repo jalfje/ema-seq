@@ -1,0 +1,39 @@
+## fixes.seq
+# Collection of fixes to broken things in seq
+
+# Allow booleans to be used as a member of a tuple that is dict key
+# See github.com/seq-lang/seq/issues/169
+extend bool:
+    def __hash__(self: bool)-> int:
+        return 2 if self else 1
+
+# Allow zip to use more than 2 elements
+# See github.com/seq-lang/seq/issues/165
+def zip3(a, b, c):
+    bi = iter(b)
+    ci = iter(c)
+    for i in a:
+        if bi.done() or ci.done(): break
+        yield (i, bi.next(), ci.next())
+    bi.destroy()
+    ci.destroy()
+
+def zip4(a, b, c, d):
+    bi = iter(b)
+    ci = iter(c)
+    di = iter(d)
+    for i in a:
+        if bi.done() or ci.done() or di.done(): break
+        yield (i, bi.next(), ci.next(), di.next())
+    bi.destroy()
+    ci.destroy()
+    di.destroy()
+
+# Generates an incrementing value.
+# Workaround for the fact that classes can't have class variables.
+def id_generator():
+    id_ = 0
+    while True:
+        yield id_
+        id_ += 1
+
