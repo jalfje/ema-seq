@@ -213,9 +213,8 @@ def run_align(options: list[str], program_argv: list[str]):
     fai_filename = ref + ".fai"
     fai = FAI(fai_filename)
 
-    # TODO: make use of - this is global in original
     bwa = BWA(ref)
-    util.write_sam_header(out_file, bwa, rg, program_argv, VERSION)
+    util.write_sam_header(out_file, bwa.p[0], rg, program_argv, VERSION)
 
     if multi_input:
         if len(unused_opts) == 0:

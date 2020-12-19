@@ -62,13 +62,13 @@ def c_str_to_str(p: ptr[byte])-> str:
     return str(p, _strlen(p))
 
 # Writes the SAM format header to an open (and empty) file
-def write_sam_header(out, ref, read_group: str, argv: list[str], version_str: str):
+def write_sam_header(out, ref: bwa.bwaidx_t, read_group: str, argv: list[str], version_str: str):
     # HD
     out.write("@HD\tVN:1.3\tSO:unsorted\n")
 
     # SQ
-    n_seqs = int(ref.p[0]._bns[0]._n_seqs)
-    annos = [ref.p[0]._bns[0]._anns[i] for i in range(n_seqs)]
+    n_seqs = int(ref._bns[0]._n_seqs)
+    annos = [ref._bns[0]._anns[i] for i in range(n_seqs)]
     for anno in annos: # yeesh this is quite the hack
         out.write(f"@SQ\tSN:{c_str_to_str(anno._name)}\tLN:{anno._len}\n")
 
