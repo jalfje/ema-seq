@@ -22,7 +22,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
     bc_group_end_idx = 0
     total_records = len(fq1)
     while bc_group_end_idx < total_records:
-        sam_dict: SamDict # TODO: implement this? or else convert to simple dict. but this has more functionality.
+        sam_dict = SamDict(tech)
         clouds = list[Cloud]()
 
         ### Get barcode group
@@ -81,7 +81,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
 
         ### Initializations
         for e in sam_dict.entries():
-            e.gammas = normalize_log_probabilities(e.gammas)
+            normalize_log_probabilities(e.gammas)
 
             for cloud, gamma in zip(e.clouds, e.gammas):
                 cloud.exp_cov += gamma
@@ -127,17 +127,17 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
             if not e.visited:
                 m: SamDictEntry = e.mate
                 best: SamRecord = e.find_best_record() # TODO: implement SamDictEntry.find_best_record()
-                best_mate: SamRecord = m.find_best_record() if m is None else None
+                best_mate: SamRecord = m.find_best_record() if m is not None else None
 
                 best.selected_mate = best_mate
                 records_final.append(best)
 
-                if best_mate is None:
+                if best_mate is not None:
                     best_mate.selected_mate = best
                     records_final.append(best_mate)
 
                 e.visited = True
-                if m is None:
+                if m is not None:
                     m.visited = True
                     m.mate = None
 
@@ -161,7 +161,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
                 continue
 
             mate = record.selected_mate
-            if mate is None:
+            if mate is not None:
                 mate.visited = True
 
             print_sam_record(record, mate, out_file, read_group_id) # TODO: implement print_sam_record
@@ -275,7 +275,7 @@ def recompute_gammas(entry: SamDictEntry)-> float:
     mate_clouds: list[Cloud]
     mate_gammas: list[float]
 
-    if e.mate is None:
+    if e.mate is not None:
         mate_records = mate.cand_records
         mate_clouds = mate.cand_clouds
         mate_gammas = mate.gammas
@@ -294,7 +294,7 @@ def recompute_gammas(entry: SamDictEntry)-> float:
     for idx, (r, c, cw) in enumerate(zip(e.cand_records, e.cand_clouds, cloud_weights)):
         best_mate_score: float = UNPAIRED_PENALTY
 
-        if mate is None:
+        if e.mate is not None:
             for mr, mc, mg in zip(mate_records, mate_clouds, mate_gammas):
                 if mr.chrom == r.chrom and mr.rev != r.rev and c == mc and mg != 0.0:
                     penalty = mate_dist_penalty(r.pos, mr.pos) if r.rev else mate_dist_penalty(mr.pos, r.pos)
