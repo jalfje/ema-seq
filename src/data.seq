@@ -79,6 +79,15 @@ def normalize_cloud_probabilities(clouds: list[Cloud]):
 
 ### SamRecord
 
+class Alt:
+    chrom: str
+    pos: int
+    edit_dist: int
+    cigar: str
+    rev: bool
+
+    def __init__(self: Alt):
+        pass # TODO:
 
 # Needed to implement this myself because Seq's native implementation is sorely lacking
 class SamRecord:
@@ -93,26 +102,22 @@ class SamRecord:
     clip: int
     clip_edit_dist: int # Edit distance including clipping
 
-    self_hash: int
-    mate_hash: int
-
     mate: bool
     rev: bool
-    self_hashed: bool
-    mate_hashed: bool
     duplicate: bool
     unique: bool
     active: bool
     visited: bool
 
-    gamme: float
+    gamma: float
     cloud: Cloud # pointer to cloud containing this record
 
     fq: FastQRecord # Pointer to read that this was from
     fq_mate: FastQRecord # Pointer to read that the mate was from
 
     selected_mate: SamRecord
-    alignment: SingleReadAlignment
+    alignment: SingleReadAlignment # TODO: implement SingleReadAlignment
+    alts: list[Alt]
 
     def __init__(self: SamRecord):
         pass # TODO: implement? or default-initialize everything? (do things even get default-initialized? I know bools do)
