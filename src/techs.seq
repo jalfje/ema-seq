@@ -3,6 +3,7 @@ from fixes import *
 # Contains data for representing different supported technologies
 
 from data import *
+from util import encode_barcode
 
 # Extracts barcode from and modifies id
 def extract_barcode_10x(rec: FastQRecord)-> bc_t:

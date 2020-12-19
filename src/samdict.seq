@@ -3,7 +3,7 @@ from fixes import *
 # Provides a modified dictionary containing collections of SamRecord-Cloud-gamma triplets
 
 from techs import PlatformProfile
-from data import SamRecord, Cloud, Alt
+from data import SamRecord, Cloud, Alt, chrom_lookup
 
 MAX_CANDIDATES: int = 5000
 SECONDARY_ALIGN_THRESH: float = 0.9
@@ -57,7 +57,7 @@ class SamDictEntry:
 
             if second_best_gamma > 0.0:
                 second_best_record = self.cand_records[second_best_idx]
-                #alt.chrom = chrom_lookup(second_best_record.chrom) # TODO: chrom_lookup?
+                alt.chrom = chrom_lookup(second_best_record.chrom)
                 alt.pos = second_best_record.pos
                 alt.edit_dist = second_best_record.alignment.edit_dist
                 alt.cigar = second_best_record.alignment.cigar

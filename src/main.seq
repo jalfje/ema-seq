@@ -145,12 +145,11 @@ def run_align(options: list[str], program_argv: list[str]):
     fq1 = str() # first fastq file
     fq2 = str() # (optional) second fastq file
     fqx = str() # special fastq file
-    fai_filename = str() # fasta index file
     out = str() # output file
     apply_opt = False # -d optimization
     multi_input = False # multiple input flag
     platform = "10x" # technology
-    bx_index = "1" # TODO: make global?
+    bx_index = "1"
     t = 1
 
     # Parse options
@@ -209,11 +208,15 @@ def run_align(options: list[str], program_argv: list[str]):
     # Parse remaining parameters
     out_file = sys.stdout if len(out) == 0 else open(out, "w")
 
-    # TODO: make use of - this is global in original
+    # Get chromosome names from reference index file
     fai_filename = ref + ".fai"
-    fai = FAI(fai_filename)
+    global _chroms
+    _chroms = [entry.name for entry in FAI(fai_filename)]
 
     bwa = BWA(ref)
+    # Based on config in align.c::bwa_init
+    p = ptr[i32](ptr[byte](bwa.opt) + 20 * 4); p[0] = i32(3000) # opt->max_occ = 3000
+
     util.write_sam_header(out_file, bwa.p[0], rg, program_argv, VERSION)
 
     if multi_input:
@@ -225,13 +228,13 @@ def run_align(options: list[str], program_argv: list[str]):
 
         # TODO: parallelize across t threads
         for input_file in open_input_files:
-            find_clouds_and_align_special_fastq(input_file, out_file, apply_opt, tech, rg, 1)
+            find_clouds_and_align_special_fastq(bwa, input_file, out_file, apply_opt, tech, 1, rg, bx_index)
             input_file.close()
 
     elif len(fqx) != 0:
         fqx_file = open(fqx, "r")
 
-        find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rg, t)
+        find_clouds_and_align_special_fastq(bwa, fqx_file, out_file, apply_opt, tech, t, rg, bx_index)
 
         fqx_file.close()
 
@@ -239,7 +242,7 @@ def run_align(options: list[str], program_argv: list[str]):
         fq1_file = FASTQ(fq1)
         fq2_file = FASTQ(fq2) if len(fq2) != 0 else fq1_file
 
-        find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, rg, t)
+        find_clouds_and_align_standard_fastq(bwa, fq1_file, fq2_file, out_file, apply_opt, tech, t, rg, bx_index)
 
     out_file.close()
     exit_success()

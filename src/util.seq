@@ -5,6 +5,18 @@ from fixes import *
 import math
 import bio.bwa as bwa
 
+# Barcodes are 16-element sequences (ACGT/acgt). This converts them to a 32-bit integer,
+# with higher bits based on later elements.
+_encode_barcode_dict = {'a': bc_t(0), 'c': bc_t(1), 'g': bc_t(2), 't': bc_t(3),
+                        'A': bc_t(0), 'C': bc_t(1), 'G': bc_t(2), 'T': bc_t(3)}
+def encode_barcode(bc: str)-> bc_t:
+    encoded = bc_t(0)
+    for c in reversed(bc):
+        encoded <<= 2
+        encoded += _encode_barcode_dict[c]
+    return encoded
+
+
 # Validate read group name
 def validate_read_group(read_group: str)-> bool:
     return read_group.find("@RG\t") == 0 and read_group.find("\tID:") != -1

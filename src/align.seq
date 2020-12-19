@@ -3,11 +3,11 @@ from fixes import *
 ## Script which performs EMA alignment.
 
 import math
-import bio.bwa as bwa
+import bio.bwa
 
 from data import *
 from samdict import *
-from util import normalize_log_probabilities
+from util import normalize_log_probabilities, encode_barcode
 
 UNPAIRED_PENALTY: float = -15.0
 INSERT_MIN: int = -35
@@ -55,10 +55,12 @@ def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[
     return (start_idx, idx)
 
 # TODO: finish implementing subroutines/interfacing with BWA
-def get_alignments(ref, opts, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
+def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
     # ref & opts are only ever passed to subcommands
     # ref: bwaidx_t
     # opts: mem_opt_t
+    ref = bwa.p[0]
+    opts = ptr[byte](bwa.opt) # This is now a pointer, which we can manipulate as necessary. Sketchy sketchy.
 
     mate1_len = len(mate1.read)
     mate2_len = len(mate2.read)
@@ -105,9 +107,9 @@ def get_alignments(ref, opts, mate1: FastQRecord, mate2: FastQRecord)-> list[Sam
         # This was implemented within align.c, and only uses mem_opt_t and mem_alnreg_t, which are both
         # already sort-of supported by bio.bwa.
         # mem_opt_t is missing a couple things:
-        # - mapQ_coef_len
-        # - mapQ_coef_fac
-        # - min_seed_len
+        # - mapQ_coef_len # ptr[u32](ptr[byte](opts) + 28 * 4)[0] # TODO: this is a float in C. Need to convert to float here somehow.
+        # - mapQ_coef_fac # int(ptr[i32](ptr[byte](opts) + 29 * 4)[0])
+        # - min_seed_len  # int(ptr[i32](ptr[byte](opts) + 15 * 4)[0])
         # but does have `a` (match score) and `b` (mismatch penalty)
         # mem_alnreg_t actually has everything! but this will require EasyAlignment to be implemented also
         r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
@@ -182,18 +184,17 @@ def recompute_gammas(e: SamDictEntry, tech: PlatformProfile)-> float:
     max_change = max([abs(old - new) for old, new in zip(old_gammas, e.gammas)])
     return max_change
 
-def print_sam_record(out_file, record: SamRecord, mate: SamRecord, read_group_id: str):
+def print_sam_record(out_file, record: SamRecord, mate: SamRecord, read_group_id: str, bx_index: str):
     pass # TODO: implement
 
-
-def find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, read_group, threads_per_file):
+def find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, read_group, bx_index, threads_per_file):
     pass # Likely will not implement, but might
 
-def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, read_group, threads_per_file):
+def find_clouds_and_align_special_fastq(bwa: bio.bwa.BWA, fqx_file, out_file, apply_opt, tech: PlatformProfile, read_group: str, bx_index: str, threads_per_file: int):
     fq1, fq2 = read_special_fastq(fqx_file)
     assert(len(fq1) == len(fq2))
 
-    # TODO: parallelize by threads_per_file
+    # TODO: parallelize by threads_per_file - not implementing
     MAX_CLOUDS_PER_BC_LARGE = 10000000
     MAX_CLOUDS_PER_BC_SMALL = 1000000
     EM_ITERS = 5
@@ -217,10 +218,8 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
         barcode = fq1[bc_range[0]].barcode # get actual barcode
         worth_doing_full_em = (bc_range[1] - bc_range[0]) >= 30
 
-        # TODO: ensure ref and opts are accessible here.
         ### Generate list of alignments for reads in this barcode group
-        sam_records = list[SamRecord]() # TODO: TODO: TODO: replace with subsequent line
-        #sam_records = [aln for mate1, mate2 in zip(fq1[bc_range[0], bc_range[1]], fq2[bc_range[0], bc_range[1]]) for aln in get_alignments(ref, opts, mate1, mate2)]
+        sam_records = [aln for mate1, mate2 in zip(fq1[bc_range[0], bc_range[1]], fq2[bc_range[0], bc_range[1]]) for aln in get_alignments(bwa, mate1, mate2)]
 
         sam_records = sorted(sam_records, key=sam_record_cmp_key)
 
@@ -257,7 +256,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
                 #    mark_optimal_alignments_in_cloud(cloud_to_split)
 
                 for rec in cloud_to_split:
-                    sam_dict.add(rec, cloud, force=True) # TODO: implement sam_dict.add(SamRecord, Cloud, force)
+                    sam_dict.add(rec, cloud, force=True)
 
             r_idx += 1
 
@@ -308,7 +307,7 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
         for e in sam_dict.entries():
             if not e.visited:
                 m: SamDictEntry = e.mate
-                best: SamRecord = e.find_best_record() # TODO: implement SamDictEntry.find_best_record()
+                best: SamRecord = e.find_best_record()
                 best_mate: SamRecord = m.find_best_record() if m is not None else None
 
                 best.selected_mate = best_mate
@@ -345,6 +344,6 @@ def find_clouds_and_align_special_fastq(fqx_file, out_file, apply_opt, tech, rea
             if mate is not None:
                 mate.visited = True
 
-            print_sam_record(out_file, record, mate, read_group_id)
-            print_sam_record(out_file, mate, record, read_group_id)
+            print_sam_record(out_file, record, mate, read_group_id, bx_index)
+            print_sam_record(out_file, mate, record, read_group_id, bx_index)
 

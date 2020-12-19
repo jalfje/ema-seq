@@ -5,7 +5,13 @@ from fixes import *
 from bwabridge import SingleReadAlignment
 
 type bc_t = int
-type chrom_t = int
+
+# Global variable for simplicity; consistent with C version. Not ideal coding practices here.
+_chroms = list[str]()
+def chrom_index(chrom: str)-> int:
+    return _chroms.index(chrom)
+def chrom_lookup(index: int)-> str:
+    return _chroms[index]
 
 # FastQRecord: Contains data for a single barcoded FASTQ record
 class FastQRecord:
@@ -20,16 +26,6 @@ class FastQRecord:
         self.read = read
         self.qual = qual
 
-# Barcodes are 16-element sequences (ACGT/acgt). This converts them to a 32-bit integer,
-# with higher bits based on later elements.
-_encode_barcode_dict = {'a': bc_t(0), 'c': bc_t(1), 'g': bc_t(2), 't': bc_t(3),
-                        'A': bc_t(0), 'C': bc_t(1), 'G': bc_t(2), 'T': bc_t(3)}
-def encode_barcode(bc: str)-> bc_t:
-    encoded = bc_t(0)
-    for c in reversed(bc):
-        encoded <<= 2
-        encoded += _encode_barcode_dict[c]
-    return encoded
 
 ### Clouds
 
@@ -91,7 +87,7 @@ class Alt:
 # Needed to implement this myself because Seq's native implementation is sorely lacking
 class SamRecord:
     barcode: bc_t
-    chrom: chrom_t
+    chrom: int
     pos: int
 
     ident: str
@@ -125,7 +121,7 @@ class SamRecord:
     def __init__(self: SamRecord, fq: FastQRecord, fq_mate: FastQRecord, aln: SingleReadAlignment,
                  mate: bool, clip: int, clip_edit_dist: int):
         self.barcode = fq.barcode
-        self.chrom = chrom_index(aln.chrom) # TODO: chrom_index
+        self.chrom = chrom_index(aln.chrom)
         self.pos = aln.pos + 1
 
         self.ident = fq.ident[1:] # skip leading @
