@@ -7,14 +7,24 @@ import bio.bwa as bwa
 
 # Barcodes are 16-element sequences (ACGT/acgt). This converts them to a 32-bit integer,
 # with higher bits based on later elements.
-_encode_barcode_dict = {'a': bc_t(0), 'c': bc_t(1), 'g': bc_t(2), 't': bc_t(3),
-                        'A': bc_t(0), 'C': bc_t(1), 'G': bc_t(2), 'T': bc_t(3)}
-def encode_barcode(bc: str)-> bc_t:
-    encoded = bc_t(0)
+_encode_barcode_dict = {'a': 0, 'c': 1, 'g': 2, 't': 3,
+                        'A': 0, 'C': 1, 'G': 2, 'T': 3}
+def encode_barcode(bc: str)-> int:
+    assert(len(bc) == 16)
+    encoded = 0
     for c in reversed(bc):
         encoded <<= 2
         encoded += _encode_barcode_dict[c]
     return encoded
+
+# Converts an encoded barcode integer to a 16-element barcode sequence.
+_decode_barcode_str = "ACGT"
+def decode_barcode(bc: int)-> str:
+    decoded = ""
+    for i in range(16):
+        decoded += _decode_barcode_str[bc & 0x3]
+        bc >>= 2
+    return decoded
 
 
 # Validate read group name
@@ -65,7 +75,11 @@ def normalize_log_probabilities(probs: list[float]):
         probs[idx] = p / total
 
 
+def u32_to_float(p: u32)-> float:
+    raise NotImplementedError() # TODO: implement
+
 # Yeesh. Built-in BWA bridge is sorely, sorely, sorely lacking in seq at present.
+# This might be able to be done with str.from_ptr()?
 def c_str_to_str(p: ptr[byte])-> str:
     def _strlen(p: ptr[byte]):
         n = 0

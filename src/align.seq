@@ -3,15 +3,30 @@ from fixes import *
 ## Script which performs EMA alignment.
 
 import math
-import bio.bwa
+import bio.bwa as seq_bwa
 
 from data import *
 from samdict import *
-from util import normalize_log_probabilities, encode_barcode
+from bwabridge import *
+import util
 
 UNPAIRED_PENALTY: float = -15.0
+EXTRA_SEARCH_DEPTH: int = 12
 INSERT_MIN: int = -35
 INSERT_MAX: int = 750
+
+# Check if sam records are a pair.
+def is_pair(record: SamRecord, mate: SamRecord)-> bool:
+    if record.rev == mate.rev or record.chrom != mate.chrom:
+        return False
+
+    if mate.rev:
+        tmp = mate
+        mate = record
+        record = mate
+
+    d = record.pos - mate.pos
+    return INSERT_MIN <= d and d <= INSERT_MAX
 
 # Get penalty for mate pair distance.
 def mate_dist_penalty(mate1_pos: int, mate2_pos: int):
@@ -39,7 +54,7 @@ def read_special_fastq(fqx_file)-> tuple[list[FastQRecord], list[FastQRecord]]:
         # values has the following format:
         # [0]: barcode [1]: read1 [2]: id [3]: qual1 [4]: read2 [5]: qual2
         values = record.split(" ")
-        barcode = encode_barcode(values[0])
+        barcode = util.encode_barcode(values[0])
 
         fq1.append(FastQRecord(barcode, values[2], values[1], values[3]))
         fq2.append(FastQRecord(barcode, values[2], values[4], values[5]))
@@ -55,17 +70,13 @@ def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[
     return (start_idx, idx)
 
 # TODO: finish implementing subroutines/interfacing with BWA
-def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
+def get_alignments(bwa: seq_bwa.BWA, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
     # ref & opts are only ever passed to subcommands
     # ref: bwaidx_t
     # opts: mem_opt_t
-    ref = bwa.p[0]
-    opts = ptr[byte](bwa.opt) # This is now a pointer, which we can manipulate as necessary. Sketchy sketchy.
 
     mate1_len = len(mate1.read)
     mate2_len = len(mate2.read)
-
-    EXTRA_SEARCH_DEPTH = 12
 
     # TODO: implement bwa_mem_mate_sw
     # bwa_mem_mate_sw is 90 lines in bwabridge. not implemented in seq, but a similar function is.
@@ -73,7 +84,7 @@ def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord
     # actually! EasyAlignmentPairs might not be in seq, but alignments are in the form of mem_alnreg_t
     # EasyAlignment is just a wrapper around mem_alnreg_t, converted in bwabridge::interpret_align
     # DONE: EasyAlignment() and SingleReadAlignment() as conversions from mem_alnreg_t and mem_aln_t
-    alignments: EasyAlignmentPairs = bwa_mem_mate_sw(ref, opts, mate1.read, mate1_len, mate2.read, mate2_len, 25)
+    alignments: EasyAlignmentPairs = bwa_mem_mate_sw(bwa, mate1.read, mate1_len, mate2.read, mate2_len, 25)
     best_dist = -1
     aligns_added1 = 0
     aligns_added2 = 0
@@ -83,13 +94,10 @@ def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord
     is_first = True
     for a in alignments.a1:
         # TODO: implement bwa_smith_waterman
-        # bwa_smith_waterman uses bwa bridge, including "arena", whatever that is
-        # ACTUALLY!
         # This seems to be basically just bwa.align(mate1.read), and alignment can be acquired with bwa.reg2aln(mate1.read, reg)
         # In particular: bwa_smith_waterman() seems to be just bwa.reg2aln()
         #            and bwa_mem_mate_sw() is very similar to align(), but with some tomfoolery around mates
-        # SingleReadAlignment is just a wrapper around mem_aln_t, converted in bwabridge::interpret_single_read_alignment
-        r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate1.read, mate1_len, a.chained_hit)
+        r: SingleReadAlignment = bwa_smith_waterman(bwa, mate1.read, mate1_len, a.chained_hit)
 
         clip = mate1_len - (a.read_end - a.read_start)
 
@@ -103,16 +111,7 @@ def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord
         elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
             continue
 
-        # TODO: implement mem_approx_mapq_se_insist
-        # This was implemented within align.c, and only uses mem_opt_t and mem_alnreg_t, which are both
-        # already sort-of supported by bio.bwa.
-        # mem_opt_t is missing a couple things:
-        # - mapQ_coef_len # ptr[u32](ptr[byte](opts) + 28 * 4)[0] # TODO: this is a float in C. Need to convert to float here somehow.
-        # - mapQ_coef_fac # int(ptr[i32](ptr[byte](opts) + 29 * 4)[0])
-        # - min_seed_len  # int(ptr[i32](ptr[byte](opts) + 15 * 4)[0])
-        # but does have `a` (match score) and `b` (mismatch penalty)
-        # mem_alnreg_t actually has everything! but this will require EasyAlignment to be implemented also
-        r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
+        r.mapq = mem_approx_mapq_se_insist(bwa, a.chained_hit)
         sam_records.append(SamRecord(mate1, mate2, r, False, clip, dist))
         aligns_added1 += 1
 
@@ -121,7 +120,7 @@ def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord
 
     is_first = True
     for a in alignments.a2:
-        r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate2.read, mate2_len, a.chained_hit)
+        r: SingleReadAlignment = bwa_smith_waterman(bwa, mate2.read, mate2_len, a.chained_hit)
 
         clip = mate2_len - (a.read_end - a.read_start)
 
@@ -135,8 +134,8 @@ def get_alignments(bwa, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord
         elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
             continue
 
-        r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
-        sam_records.append(alignment_to_sam_record(mate2, mate1, r, True, clip, dist))
+        r.mapq = mem_approx_mapq_se_insist(bwa, a.chained_hit)
+        sam_records.append(SamRecord(mate2, mate1, r, True, clip, dist))
         aligns_added2 += 1
 
     if aligns_added2 == 1:
@@ -179,27 +178,159 @@ def recompute_gammas(e: SamDictEntry, tech: PlatformProfile)-> float:
 
         e.gammas[idx] = r.score + (math.log(cw) if tech.many_clouds else c.weight) + best_mate_score
 
-    normalize_log_probabilities(e.gammas)
+    util.normalize_log_probabilities(e.gammas)
 
     max_change = max([abs(old - new) for old, new in zip(old_gammas, e.gammas)])
     return max_change
 
-def print_sam_record(out_file, record: SamRecord, mate: SamRecord, read_group_id: str, bx_index: str):
-    pass # TODO: implement
 
-def find_clouds_and_align_standard_fastq(fq1_file, fq2_file, out_file, apply_opt, tech, read_group, bx_index, threads_per_file):
-    pass # Likely will not implement, but might
+SAM_READ_PAIRED = 1
+SAM_READ_PROPER = 2
+SAM_READ_UNMAPPED = 4
+SAM_MATE_UNMAPPED = 8
+SAM_READ_REVERSED = 16
+SAM_MATE_REVERSED = 32
+SAM_1ST_IN_PAIR = 64
+SAM_2ND_IN_PAIR = 128
+SAM_READ_IS_DUP = 1024
+def sam_record_string(record: SamRecord, mate: SamRecord, read_group_id: str, bx_index: str)-> str:
+    assert(record is not None or mate is not None)
 
-def find_clouds_and_align_special_fastq(bwa: bio.bwa.BWA, fqx_file, out_file, apply_opt, tech: PlatformProfile, read_group: str, bx_index: str, threads_per_file: int):
+    flag: int = SAM_READ_PAIRED
+    ident: str = ""
+    chrom: str = "*"
+    pos: int = 0
+    mapq: int = 0
+    read_len: int = 0
+    barcode: int = 0
+    r: SingleReadAlignment = None
+    fq: FastQRecord = None
+
+    alts = list[Alt]()
+    gamma: float = 0.0
+    cloud: Cloud = None
+
+    if record is not None:
+        ident = record.ident
+        chrom = chrom_lookup(record.chrom)
+        pos = record.pos
+        read_len = len(record.fq.read)
+        barcode = record.barcode
+        r = record.alignment
+        fq = record.fq
+
+        alts = record.alts
+        gamma = record.gamma
+        cloud = record.cloud
+
+        assert(not math.isnan(gamma))
+
+        gamma_mapq = int(-10.0 * math.log10(1.0 - gamma)) if gamma <= 0.999999 else 60
+        score_mapq = record.score_mapq
+        bwa_mapq = record.mapq
+        mapq = min(gamma_mapq, score_mapq, bwa_mapq, 60)
+        mapq = max(mapq, 0)
+
+        if record.rev:
+            flag |= SAM_READ_REVERSED
+        if record.duplicate:
+            flag |= SAM_READ_IS_DUP
+
+        flag |= SAM_1ST_IN_PAIR if not record.mate else SAM_2ND_IN_PAIR
+    else:
+        ident = mate.ident
+        read_len = len(mate.fq_mate.read)
+        barcode = mate.barcode
+        fq = mate.fq_mate
+        flag |= SAM_READ_UNMAPPED
+        flag |= SAM_1ST_IN_PAIR if mate.mate else SAM_2ND_IN_PAIR
+
+    if mate is not None:
+        if is_pair(record, mate):
+            flag |= SAM_READ_PROPER
+        if mate.rev:
+            flag |= SAM_READ_REVERSED
+    else:
+        flag |= SAM_MATE_UNMAPPED
+
+    ## Start outputting
+    out_str = ""
+
+    # Basics
+    out_str += f"{ident}\t{flag}\t{chrom}\t{pos}\t{mapq}\t"
+
+    # Cigar
+    if record is not None:
+        out_str += str(r.cigar)
+    else:
+        out_str += "*"
+
+    # Mate mapping
+    if mate is not None:
+        same_chrom = record is not None and mate.chrom == record.chrom
+        out_str += f"\t=\t{mate.pos}\t" if same_chrom else f"\t{chrom_lookup(mate.chrom)}\t{mate.pos}\t"
+
+        s: SingleReadAlignment = mate.alignment
+        if same_chrom and len(r.cigar) > 0 and len(s.cigar) > 0:
+            p0 = r.pos + ((r.cigar.rlen - 1) if r.rev else 0)
+            p1 = s.pos + ((s.cigar.rlen - 1) if s.rev else 0)
+            sign = 1 if p0 > p1 else (-1 if p0 < p1 else 0)
+            out_str += str(-(p0 - p1 + sign))
+        else:
+            out_str += "0"
+    else:
+        out_str += "\t*\t0\t0"
+
+    # Sequence and Quality scores
+    out_str += "\t"
+    if record is not None and record.rev:
+        out_str += str(~fq.read)
+        out_str += "\t"
+        out_str += fq.qual[-1::-1]
+    else:
+        out_str += str(fq.read)
+        out_str += "\t"
+        out_str += fq.qual
+
+    ## Tags
+    # Miscellaneous, including barcode
+    bc_str = util.decode_barcode(barcode)
+    if record is not None:
+        out_str += f"\tNM:i:{r.edit_dist}\tBX:Z:{bc_str}-{bx_index}\tXG:f:{gamma}\tMI:i:{cloud.ident}\tXF:i:{1 if cloud.bad else 0}"
+    else:
+        out_str += f"\tBX:Z:{bc_str}-1"
+
+    # Read group
+    if len(read_group_id) > 0:
+        out_str += f"\tRG:Z:{read_group_id}" # read_group_id should have no trailing whitespace
+
+    # Alternate mappings
+    if len(alts) > 0:
+        out_str += "\tXA:Z:"
+        for alt in alts:
+            out_str += f"{alt.chrom},{'-' if alt.rev else '+'}{alt.pos}"
+            out_str += str(alt.cigar)
+            out_str += f",{alt.edit_dist};"
+
+    out_str += "\n"
+    return out_str
+
+
+
+def find_clouds_and_align_standard_fastq(bwa, fq1_file, fq2_file, out_file, apply_opt, tech, threads_per_file, read_group, bx_index):
+    # TODO Future work: implement this. Will be largely the same as find_clouds_and_align_special_fastq
+    raise NotImplementedError()
+
+def find_clouds_and_align_special_fastq(bwa: seq_bwa.BWA, fqx_file, out_file, apply_opt, tech: PlatformProfile, threads_per_file: int, read_group: str, bx_index: str):
     fq1, fq2 = read_special_fastq(fqx_file)
     assert(len(fq1) == len(fq2))
 
-    # TODO: parallelize by threads_per_file - not implementing
+    # TODO Future work: parallelize across threads_per_file threads
     MAX_CLOUDS_PER_BC_LARGE = 10000000
     MAX_CLOUDS_PER_BC_SMALL = 1000000
     EM_ITERS = 5
     max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
-    read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:]
+    read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:].split()[0]
 
     bc_group_end_idx = 0
     total_records = len(fq1)
@@ -262,7 +393,7 @@ def find_clouds_and_align_special_fastq(bwa: bio.bwa.BWA, fqx_file, out_file, ap
 
         ### Initializations
         for e in sam_dict.entries():
-            normalize_log_probabilities(e.gammas)
+            util.normalize_log_probabilities(e.gammas)
 
             for cloud, gamma in zip(e.cand_clouds, e.gammas):
                 cloud.exp_cov += gamma
@@ -344,6 +475,6 @@ def find_clouds_and_align_special_fastq(bwa: bio.bwa.BWA, fqx_file, out_file, ap
             if mate is not None:
                 mate.visited = True
 
-            print_sam_record(out_file, record, mate, read_group_id, bx_index)
-            print_sam_record(out_file, mate, record, read_group_id, bx_index)
+            out_file.write(sam_record_string(record, mate, read_group_id, bx_index))
+            out_file.write(sam_record_string(mate, record, read_group_id, bx_index))
 

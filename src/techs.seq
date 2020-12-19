@@ -6,7 +6,7 @@ from data import *
 from util import encode_barcode
 
 # Extracts barcode from and modifies id
-def extract_barcode_10x(rec: FastQRecord)-> bc_t:
+def extract_barcode_10x(rec: FastQRecord)-> int:
     last_colon_idx = rec.ident.rindex(':')
     bc = encode_barcode(rec.ident[last_colon_idx+1:])
     rec.ident = rec.ident[:last_colon_idx]
@@ -19,14 +19,14 @@ def extract_barcode_10x(rec: FastQRecord)-> bc_t:
     return bc
 
 # Extracts barcode from id
-def extract_barcode_truseq(rec: FastQRecord)-> bc_t:
+def extract_barcode_truseq(rec: FastQRecord)-> int:
     bc = rec.ident[1:] if rec.ident[0] == '@' else rec.ident
-    return bc_t(int(bc))
+    return int(bc)
 
 # Extracts barcode from and modifies id
-def extract_barcode_cptseq(rec: FastQRecord)-> bc_t:
+def extract_barcode_cptseq(rec: FastQRecord)-> int:
     last_colon_idx = rec.ident.rindex(':')
-    bc = bc_t(int(rec.ident[last_colon_idx+3:]))
+    bc = int(rec.ident[last_colon_idx+3:])
     rec.ident = rec.ident[:last_colon_idx]
 
     return bc
@@ -34,14 +34,14 @@ def extract_barcode_cptseq(rec: FastQRecord)-> bc_t:
 # Class holding parameter profile for a platform
 class PlatformProfile:
     name: str
-    extract_barcode: function[bc_t, FastQRecord]
+    extract_barcode: function[int, FastQRecord]
     many_clouds: bool
     dist_thresh: int
     error_rate: float
     density_probs: list[float]
     def __init__(self: PlatformProfile,
                  name: str,
-                 extract_barcode: function[bc_t, FastQRecord],
+                 extract_barcode: function[int, FastQRecord],
                  many_clouds: bool,
                  dist_thresh: int,
                  error_rate: float,

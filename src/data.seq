@@ -4,8 +4,6 @@ from fixes import *
 
 from bwabridge import SingleReadAlignment
 
-type bc_t = int
-
 # Global variable for simplicity; consistent with C version. Not ideal coding practices here.
 _chroms = list[str]()
 def chrom_index(chrom: str)-> int:
@@ -15,15 +13,21 @@ def chrom_lookup(index: int)-> str:
 
 # FastQRecord: Contains data for a single barcoded FASTQ record
 class FastQRecord:
-    barcode: bc_t
+    barcode: int
     ident: str
-    read: str
+    read: seq
     qual: str
 
-    def __init__(self: FastQRecord, barcode: bc_t, ident: str, read: str, qual: str):
+    def __init__(self: FastQRecord, barcode: int, ident: str, read: seq, qual: str):
         self.barcode = barcode
         self.ident = ident
         self.read = read
+        self.qual = qual
+
+    def __init__(self: FastQRecord, barcode: int, ident: str, read: str, qual: str):
+        self.barcode = barcode
+        self.ident = ident
+        self.read = seq(read)
         self.qual = qual
 
 
@@ -78,7 +82,7 @@ class Alt:
     chrom: str
     pos: int
     edit_dist: int
-    cigar: str
+    cigar: CIGAR
     rev: bool
 
     def __init__(self: Alt):
@@ -86,7 +90,7 @@ class Alt:
 
 # Needed to implement this myself because Seq's native implementation is sorely lacking
 class SamRecord:
-    barcode: bc_t
+    barcode: int
     chrom: int
     pos: int
 
@@ -126,7 +130,7 @@ class SamRecord:
 
         self.ident = fq.ident[1:] # skip leading @
 
-        score_alignment(r, s) # TODO: score_alignment
+        #score_alignment(r, s) # TODO: score_alignment
 
         self.fq = fq
         self.fq_mate = fq_mate
@@ -141,7 +145,7 @@ class SamRecord:
         self.active = True
         self.visited = False
 
-        self.gamma = 0
+        self.gamma = 0.0
         self.cloud = None
         self.selected_mate = None
         self.alts = list[Alt]()

@@ -3,8 +3,11 @@ from fixes import *
 # Extends seq's default bwa connection with ema-specific data and functions.
 # This is *extremely closely copied* from ema's bwabridge.h, just converted to seq syntax.
 
-import bio.bwa as bwa
+import math
 import util
+import bio.bwa as seq_bwa
+
+MEM_MAPQ_COEF: float = 30.0
 
 class EasyAlignment:
     offset: int
@@ -13,7 +16,7 @@ class EasyAlignment:
     score: int
     read_start: int
     read_end: int
-    chained_hit: bwa.mem_alnreg_t
+    chained_hit: seq_bwa.mem_alnreg_t
     rev: bool
     sec: bool
 
@@ -21,9 +24,9 @@ class EasyAlignment:
         pass
 
     # equivalent to bwabridge::interpret_chain
-    def __init__(self: EasyAlignment, ref: bwa.bwaidx_t, aln: bwa.mem_alnreg_t):
-        contigs: bwa.bntseq_t = ref._bns[0]
-        contig: bwa.bntann1_t = contigs._anns[aln.rid]
+    def __init__(self: EasyAlignment, ref: seq_bwa.bwaidx_t, aln: seq_bwa.mem_alnreg_t):
+        contigs: seq_bwa.bntseq_t = ref._bns[0]
+        contig: seq_bwa.bntann1_t = contigs._anns[aln.rid]
 
         if aln.rb < contigs._l_pac:
             self.offset = aln.rb - int(contig._offset)
@@ -61,9 +64,9 @@ class SingleReadAlignment:
         self.cigar = list[int]()
 
     # equivalent to bwabridge::interpret_single_read_alignment
-    def __init__(self: SingleReadAlignment, ref: bwa.bwaidx_t, aln: bwa.mem_aln_t):
-        contigs: bwa.bntseq_t = ref._bns[0]
-        contig: bwa.bntann1_t = contigs._anns[aln.rid]
+    def __init__(self: SingleReadAlignment, ref: seq_bwa.bwaidx_t, aln: seq_bwa.mem_aln_t):
+        contigs: seq_bwa.bntseq_t = ref._bns[0]
+        contig: seq_bwa.bntann1_t = contigs._anns[aln.rid]
 
         self.pos = aln.pos
         self.chrom = util.c_str_to_str(contig._name)
@@ -77,11 +80,61 @@ class SingleReadAlignment:
         self.alt_score = aln.alt_score
 
 class EasyAlignmentPairs:
-    a1: EasyAlignment
-    a2: EasyAlignment
-    len1: int
-    len2: int
+    a1: list[EasyAlignment]
+    a2: list[EasyAlignment]
 
     def __init__(self: EasyAlignmentPairs):
-        pass
+        a1 = list[EasyAlignment]()
+        a2 = list[EasyAlignment]()
 
+# Copied from align::mem_approx_mapq_se_insist, which was copied (with one change)
+# from bwamem::mem_approx_mapq_se
+def mem_approx_mapq_se_insist(bwa: seq_bwa.BWA, a: seq_bwa.mem_alnreg_t):
+    opts = ptr[byte](bwa.opt)
+    # opts is a pointer to a mem_opt_t object
+        # - mapQ_coef_len # ptr[u32](ptr[byte](opts) + 28 * 4)[0]
+        # - mapQ_coef_fac # int(ptr[i32](ptr[byte](opts) + 29 * 4)[0])
+        # - min_seed_len  # int(ptr[i32](ptr[byte](opts) + 15 * 4)[0])
+    opt_a = int(ptr[i32](opts + 0 * 4)[0])
+    opt_b = int(ptr[i32](opts + 1 * 4)[0])
+    opt_min_seed_len = int(ptr[i32](opts + 15 * 4)[0])
+    opt_mapQ_coef_len = util.u32_to_float(ptr[u32](opts + 28 * 4)[0])
+    opt_mapQ_coef_fac = int(ptr[i32](opts + 29 * 4)[0])
+
+    sub = a.sub if a.sub != 0 else opt_min_seed_len * opt_a
+    sub = max(a.csub, sub)
+    if sub >= a.score:
+        return 0
+
+    l = int(max(a.qe - a.qb, a.re - a.rb))
+    identity = 1.0 - float(l * opt_a - a.score) / float(opt_a + opt_b) / float(l)
+
+    mapq: int = 0
+    if a.score == 0:
+        mapq = 0
+    elif opt_mapQ_coef_len > 0:
+        tmp = 1.0 if float(l) < opt_mapQ_coef_len else opt_mapQ_coef_fac / math.log(float(l))
+        tmp *= identity * identity
+        mapq = int(6.02 * (a.score - sub) / opt_a * tmp * tmp + 0.499)
+    else:
+        mapq = int(MEM_MAPQ_COEF * (1.0 - float(sub) / float(a.score)) * math.log(float(a.seedcov)) + 0.499)
+        if identity < 0.95:
+            mapq = int(mapq * identity * identity + 0.499)
+
+    if a.sub_n > 0:
+        mapq -= int(4.343 * math.log(float(a.sub_n + 1)) + 0.499)
+    if mapq > 254:
+        mapq = 254
+    if mapq < 0:
+        mapq = 0
+
+    a_frac_rep = util.u32_to_float(a._frac_rep) # convert u32 to float
+    mapq = int(float(mapq) * (1.0 - a_frac_rep) + 0.499)
+    return mapq
+
+
+def bwa_mem_mate_sw(bwa: seq_bwa.BWA, read1: seq, len1: int, read2: seq, len2: int, score_delta: int)-> EasyAlignmentPairs:
+    raise NotImplementedError() # TODO: implement
+
+def bwa_smith_waterman(bwa: seq_bwa.BWA, read: seq, len: int, aln: seq_bwa.mem_alnreg_t)-> SingleReadAlignment:
+    raise NotImplementedError() # TODO: implement

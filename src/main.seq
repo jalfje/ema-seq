@@ -226,7 +226,7 @@ def run_align(options: list[str], program_argv: list[str]):
 
         open_input_files = [open(f, "r") for f in unused_opts]
 
-        # TODO: parallelize across t threads
+        # TODO Future work: parallelize across t threads
         for input_file in open_input_files:
             find_clouds_and_align_special_fastq(bwa, input_file, out_file, apply_opt, tech, 1, rg, bx_index)
             input_file.close()
