@@ -115,43 +115,19 @@ class SamRecord:
     alignment: SingleReadAlignment
 
     def __init__(self: SamRecord):
-        pass
+        pass # TODO: implement? or default-initialize everything? (do things even get default-initialized? I know bools do)
 
-def sam_record_cmp(record1: SamRecord, record2: SamRecord)-> int:
-    bc1 = record1.barcode
-    bc2 = record2.barcode
-    cmp_result = int(bc1 > bc2) - int(bc1 < bc2)
-    if cmp_result != 0:
-        return cmp_result
+def sam_record_cmp_key(record: SamRecord):
+    return (record.barcode, record.chrom, record.pos, record.ident)
 
-    chrom1 = record1.chrom
-    chrom2 = record2.chrom
-    cmp_result = int(chrom1 > chrom2) - int(chrom1 < chrom2)
-    if cmp_result != 0:
-        return cmp_result
+def sam_name_cmp_key(record: SamRecord):
+    return (record.ident, record.mate)
 
-    pos1 = record1.pos
-    pos2 = record2.pos
-    cmp_result = int(pos1 > pos2) - int(pos1 < pos2)
-    if cmp_result != 0:
-        return cmp_result
-
-    ident1 = record1.ident
-    ident2 = record2.ident
-    cmp_result = int(ident1 > ident2) - int(ident1 < ident2)
-    return cmp_result
-
-def sam_name_cmp(record1: SamRecord, record2: SamRecord)-> int:
-    ident1 = record1.ident
-    ident2 = record2.ident
-    cmp_result = int(ident1 > ident2) - int(ident1 < ident2)
-    if cmp_result != 0:
-        return cmp_result
-
-    m1 = record1.mate
-    m2 = record2.mate
-    cmp_result = int(m1 > m2) - int(m1 < m2)
-    return cmp_result
-
-def sam_duplicate_cmp(record1: SamRecord, record2: SamRecord)-> int:
-    pass
+def sam_duplicate_cmp_key(record: SamRecord):
+    return (record.barcode,
+            record.mate,
+            record.rev,
+            record.chrom,
+            record.pos,
+            record.selected_mate.chrom if record.selected_mate is not None else 0xFFFFFFFF,
+            record.selected_mate.pos if record.selected_mate is not None else 0xFFFFFFFF)
