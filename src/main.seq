@@ -13,6 +13,7 @@ import util
 KB = 1024
 MB = KB * 1024
 GB = MB * 1024
+VERSION: str = "0.0.1"
 argv0: str
 
 # Exit the program with success value
@@ -25,13 +26,14 @@ def exit_failure():
 
 # Run the main program
 def main(argc: int, argv: list[str]) -> None:
+    argv0 = argv[0]
+
     if argc < 2:
         # Why on earth does seq not use python3-style print() as a function??
-        print "EMA-seq version {0}".format(VERSION)
-        print "Note: Use '{0} help' for usage information".format(argv[0])
+        print f"EMA-seq version {VERSION}"
+        print f"Note: Use '{argv0} help' for usage information"
         exit_success()
 
-    argv0 = argv[0]
     mode = argv[1]
 
     if mode == "preproc":
@@ -52,7 +54,7 @@ def main(argc: int, argv: list[str]) -> None:
 
 # Print the help message
 def print_help()-> None:
-	print "usage: {0} <count|preproc|align|help> [options]".format(argv0)
+	print f"usage: {argv0} <count|preproc|align|help> [options]"
 	print ""
 	print "count: perform preliminary barcode count (takes interleaved FASTQ via stdin)"
 	print "  -w <whitelist path>: specify barcode whitelist [required]"
@@ -219,14 +221,14 @@ def run_align(options: list[str]):
         exit_failure()
 
     if len(rg) != 0 and not util.validate_read_group(rg):
-        print "Error: Malformed read group: {0}".format(rg)
+        print f"Error: Malformed read group: {rg}"
         exit_failure()
 
     tech: PlatformProfile # possible TODO (if necessary): make __init__ overload with no parameters
     try:
         tech = platform_profiles[platform]
     except KeyError:
-        print "Error: Invalid platform name: {0}".format(platform)
+        print f"Error: Invalid platform name: {platform}"
         exit_failure()
 
     # Parse remaining parameters
