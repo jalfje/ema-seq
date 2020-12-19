@@ -1,0 +1,149 @@
+
+# Notes:
+# - SamRecords are compared by hash (which simply hashes the ident string & the mate boolean)
+# - Lookup is into hash tables, which index by ident hash, then compare equality (as above)
+# --> consequence is that a (id, is_mate) tuple is enough to be a complete key for an entry
+# --> consequence is that sam dict can likely be the following type:
+# type SamDict = dict[tuple[str, bool], SamDictEntry]
+# and SamDictEntry needs a bit of data to flesh it out.
+
+from techs import PlatformProfile
+from data import SamRecord, Cloud
+
+MAX_CANDIDATES: int = 5000
+SECONDARY_ALIGN_THRESH: float = 0.9
+
+
+class SamDictEntry:
+    mate: SamDictEntry
+    visited: bool
+    # These could potentially be improved by combining them into list of tuples, as they are almost always accessed as such
+    cand_records: list[SamRecord]
+    cand_clouds: list[Cloud]
+    gammas: list[float]
+
+    def __init__(self: SamDictEntry, record: SamRecord, cloud: Cloud):
+        self.mate = None
+        self.visited = False
+        self.cand_records = [record]
+        self.cand_clouds = [cloud]
+        self.gammas = [record.score]
+
+    def get_best_record(self: SamDictEntry)-> SamRecord:
+        best_idx = 0
+        best_gamma = -1.0
+        for idx, (r, g) in enumerate(zip(self.cand_records, self.cand_clouds)):
+            if not r.active:
+                continue
+
+            if g > best_gamma:
+                best_idx = idx
+                best_gamma = g
+
+        chosen = self.cand_records[best_idx]
+        alt = chosen.alts[0]
+        chosen.alts = list[Alt]() # clear alt list
+        chosen.gamma = best_gamma # could be -1.0, if no candidate records are active
+        chosen.cloud = cand_clouds[best_idx]
+
+        if best_gamma <= SECONDARY_ALIGN_THRESH:
+            second_best_idx = 0
+            second_best_gamma = -1.0
+
+            for idx, (r, g) in enumerate(zip(self.cand_records, self.cand_clouds)):
+                if not r.active:
+                    continue
+
+                if idx != best_idx and g > second_best_gamma:
+                    second_best_idx = idx
+                    second_best_gamma = g
+
+            if second_best_gamma > 0.0:
+                second_best_record = self.cand_records[second_best_idx]
+                alt.chrom = chrom_lookup(second_best_record.chrom)
+                alt.pos = second_best_record.pos
+                alt.edit_dist = second_best_record.alignment.edit_dist
+                alt.cigar = second_best_record.alignment.cigar
+                alt.rev = second_best_record.rev
+                chosen.alts = [alt]
+            else:
+                alt.chrom = ""
+                alt.pos = 0
+        else:
+            alt.chrom = ""
+            alt.pos = 0
+
+        return chosen
+
+
+class SamDict:
+    _dict: dict[tuple[str, bool], SamDictEntry]
+    _tech: PlatformProfile
+
+    def __init__(self: SamDict, tech: PlatformProfile):
+        self._dict = dict[tuple[str, bool], SamDictEntry]()
+        self._tech = tech
+
+    def entries(self: SamDict):
+        return self._dict.values()
+
+    # Returns True if record+cloud pair already exists, False otherwise. "force" ignores this and always returns False.
+    def add(self: SamDict, record: SamRecord, cloud: Cloud, force: bool)-> bool:
+        entry: SamDictEntry
+        key = (record.ident, record.mate)
+        try:
+            entry = self._dict[key]
+            if len(entry.gammas) < MAX_CANDIDATES:
+                if len(entry.gammas) > 0:
+                    parent: Cloud = entry.cand_clouds[-1]
+                    if cloud is parent and not force:
+                        return True
+
+                    if not self._tech.many_clouds:
+                        # Create link in disjoint-set cloud structure, if necessary
+                        root1 = parent
+                        while root1.parent is not None:
+                            root1 = root1.parent
+
+                        root2 = cloud
+                        while root2.parent is not None:
+                            root2 = root2.parent
+
+                        if root1 is not root2:
+                            leaf = parent
+                            while leaf.child is not None:
+                                leaf = leaf.child
+
+                            root2.parent = leaf
+                            leaf.child = root2
+
+                entry.cand_records.append(record)
+                entry.cand_clouds.append(cloud)
+                entry.gammas.append(record.score)
+
+        except KeyError:
+            entry = SamDictEntry(record, cloud)
+            self._dict[key] = entry
+            try:
+                mate = self._dict[(record.ident, not record.mate)]
+                entry.mate = mate
+                mate.mate = entry
+            except KeyError:
+                pass
+
+        return False
+
+    def delete_last(self: SamDict, record: SamRecord)-> None:
+        key = (record.ident, record.mate)
+        try:
+            entry = self._dict[key]
+            try:
+                del entry.cand_records[-1]
+            except IndexError:
+                return
+            del entry.cand_clouds[-1]
+            del entry.gammas[-1]
+        except KeyError:
+            return
+
+
