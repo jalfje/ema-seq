@@ -1,3 +1,7 @@
+from fixes import *
+## techs.seq
+# Contains data for representing different supported technologies
+
 from data import *
 
 # Extracts barcode from and modifies id
@@ -47,6 +51,9 @@ class PlatformProfile:
         self.dist_thresh = dist_thresh
         self.error_rate = error_rate
         self.density_probs = density_probs
+
+    def __init__(self: PlatformProfile):
+        pass
 
 # Dict containing profiles for all supported platforms
 platform_profiles = {

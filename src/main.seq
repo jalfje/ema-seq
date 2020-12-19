@@ -1,3 +1,4 @@
+from fixes import *
 ## main.seq
 ## seq script which runs EMA alignment pipeline.
 
@@ -7,14 +8,16 @@ import getopt
 from bio.bwa import *
 from bio.fai import *
 from bio.fastq import FASTQ
+
 from techs import PlatformProfile, platform_profiles
+from align import *
 import util
 
 KB = 1024
 MB = KB * 1024
 GB = MB * 1024
 VERSION: str = "0.0.1"
-argv0: str
+argv0: str = ""
 
 # Exit the program with success value
 def exit_success():
@@ -24,36 +27,8 @@ def exit_success():
 def exit_failure():
     sys.exit(1)
 
-# Run the main program
-def main(argc: int, argv: list[str]) -> None:
-    argv0 = argv[0]
-
-    if argc < 2:
-        # Why on earth does seq not use python3-style print() as a function??
-        print f"EMA-seq version {VERSION}"
-        print f"Note: Use '{argv0} help' for usage information"
-        exit_success()
-
-    mode = argv[1]
-
-    if mode == "preproc":
-        print "Error: preprocessing mode not implemented. Use the original EMA implementation for that."
-        #run_preproc(argv[2:])
-    elif mode == "count":
-        print "Error: count mode not implemented. Use the original EMA implementation for that."
-        #run_count(argv[2:])
-    elif mode == "align":
-        run_align(argv[2:])
-    elif mode == "help":
-        print_help()
-        exit_success()
-    else:
-        print "Error: Unrecognized mode"
-        print_help()
-        exit_failure()
-
 # Print the help message
-def print_help()-> None:
+def print_help():
 	print f"usage: {argv0} <count|preproc|align|help> [options]"
 	print ""
 	print "count: perform preliminary barcode count (takes interleaved FASTQ via stdin)"
@@ -118,7 +93,7 @@ def run_preproc(options: list[str]):
         print "Error: Specify barcode whitelist with -w"
         exit_failure()
 
-    if len(out) == 0
+    if len(out) == 0:
         print "Error: Specify output directory with -o"
         exit_failure()
 
@@ -161,7 +136,7 @@ def run_count(options: list[str]):
     exit_success()
 
 # Parse options & run align mode
-def run_align(options: list[str]):
+def run_align(options: list[str], program_argv: list[str]):
     opts, unused_opts = getopt.getopt(options, "r:1:2:s:xo:R:dp:i:t:")
 
     # Declare parameters
@@ -170,7 +145,7 @@ def run_align(options: list[str]):
     fq1 = str() # first fastq file
     fq2 = str() # (optional) second fastq file
     fqx = str() # special fastq file
-    fai = str() # fasta index file
+    fai_filename = str() # fasta index file
     out = str() # output file
     apply_opt = False # -d optimization
     multi_input = False # multiple input flag
@@ -224,7 +199,7 @@ def run_align(options: list[str]):
         print f"Error: Malformed read group: {rg}"
         exit_failure()
 
-    tech: PlatformProfile # possible TODO (if necessary): make __init__ overload with no parameters
+    tech: PlatformProfile = PlatformProfile()
     try:
         tech = platform_profiles[platform]
     except KeyError:
@@ -240,7 +215,7 @@ def run_align(options: list[str]):
 
     # TODO: make use of - this is global in original
     bwa = BWA(ref)
-    write_sam_header(out_file) # TODO: this. I think this is just dealing w/ SAM format. seq should be able to avoid this.
+    util.write_sam_header(out_file, bwa, rg, program_argv, VERSION)
 
     if multi_input:
         if len(unused_opts) == 0:
@@ -270,6 +245,34 @@ def run_align(options: list[str]):
     out_file.close()
     exit_success()
 
+
+# Run the main program
+def main(argc: int, argv: list[str]):
+    argv0 = argv[0]
+
+    if argc < 2:
+        # Why on earth does seq not use python3-style print() as a function??
+        print f"EMA-seq version {VERSION}"
+        print f"Note: Use '{argv0} help' for usage information"
+        exit_success()
+
+    mode = argv[1]
+
+    if mode == "preproc":
+        print "Error: preprocessing mode not implemented. Use the original EMA implementation for that."
+        #run_preproc(argv[2:])
+    elif mode == "count":
+        print "Error: count mode not implemented. Use the original EMA implementation for that."
+        #run_count(argv[2:])
+    elif mode == "align":
+        run_align(argv[2:], program_argv=argv)
+    elif mode == "help":
+        print_help()
+        exit_success()
+    else:
+        print "Error: Unrecognized mode"
+        print_help()
+        exit_failure()
 
 # Run main program
 main(len(sys.argv), sys.argv)

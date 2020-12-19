@@ -1,14 +1,9 @@
-
-# Notes:
-# - SamRecords are compared by hash (which simply hashes the ident string & the mate boolean)
-# - Lookup is into hash tables, which index by ident hash, then compare equality (as above)
-# --> consequence is that a (id, is_mate) tuple is enough to be a complete key for an entry
-# --> consequence is that sam dict can likely be the following type:
-# type SamDict = dict[tuple[str, bool], SamDictEntry]
-# and SamDictEntry needs a bit of data to flesh it out.
+from fixes import *
+## samdict.seq
+# Provides a modified dictionary containing collections of SamRecord-Cloud-gamma triplets
 
 from techs import PlatformProfile
-from data import SamRecord, Cloud
+from data import SamRecord, Cloud, Alt
 
 MAX_CANDIDATES: int = 5000
 SECONDARY_ALIGN_THRESH: float = 0.9
@@ -29,10 +24,11 @@ class SamDictEntry:
         self.cand_clouds = [cloud]
         self.gammas = [record.score]
 
-    def get_best_record(self: SamDictEntry)-> SamRecord:
+    def find_best_record(self: SamDictEntry)-> SamRecord:
         best_idx = 0
         best_gamma = -1.0
-        for idx, (r, g) in enumerate(zip(self.cand_records, self.cand_clouds)):
+        for idx, z in enumerate(zip(self.cand_records, self.gammas)):
+            r, g = z # hack to get around seq's inability to double-unzip in for loops
             if not r.active:
                 continue
 
@@ -44,13 +40,14 @@ class SamDictEntry:
         alt = chosen.alts[0]
         chosen.alts = list[Alt]() # clear alt list
         chosen.gamma = best_gamma # could be -1.0, if no candidate records are active
-        chosen.cloud = cand_clouds[best_idx]
+        chosen.cloud = self.cand_clouds[best_idx]
 
         if best_gamma <= SECONDARY_ALIGN_THRESH:
             second_best_idx = 0
             second_best_gamma = -1.0
 
-            for idx, (r, g) in enumerate(zip(self.cand_records, self.cand_clouds)):
+            for idx, z in enumerate(zip(self.cand_records, self.gammas)):
+                r, g = z # hack to get around seq's inability to double-unzip in for loops
                 if not r.active:
                     continue
 
@@ -60,7 +57,7 @@ class SamDictEntry:
 
             if second_best_gamma > 0.0:
                 second_best_record = self.cand_records[second_best_idx]
-                alt.chrom = chrom_lookup(second_best_record.chrom)
+                #alt.chrom = chrom_lookup(second_best_record.chrom) # TODO: chrom_lookup?
                 alt.pos = second_best_record.pos
                 alt.edit_dist = second_best_record.alignment.edit_dist
                 alt.cigar = second_best_record.alignment.cigar
@@ -75,7 +72,6 @@ class SamDictEntry:
 
         return chosen
 
-
 class SamDict:
     _dict: dict[tuple[str, bool], SamDictEntry]
     _tech: PlatformProfile
@@ -89,7 +85,6 @@ class SamDict:
 
     # Returns True if record+cloud pair already exists, False otherwise. "force" ignores this and always returns False.
     def add(self: SamDict, record: SamRecord, cloud: Cloud, force: bool)-> bool:
-        entry: SamDictEntry
         key = (record.ident, record.mate)
         try:
             entry = self._dict[key]
@@ -133,7 +128,7 @@ class SamDict:
 
         return False
 
-    def delete_last(self: SamDict, record: SamRecord)-> None:
+    def delete_last(self: SamDict, record: SamRecord):
         key = (record.ident, record.mate)
         try:
             entry = self._dict[key]

@@ -1,6 +1,9 @@
+from fixes import *
 ## util.seq
 # Contains various utility functions
+
 import math
+import bio.bwa as bwa
 
 # Validate read group name
 def validate_read_group(read_group: str)-> bool:
@@ -30,7 +33,7 @@ def escape(s: str)-> str:
     return q
 
 # Normalize log probabilities of an array, in-place
-def normalize_log_probabilities(probs: list[float])-> None:
+def normalize_log_probabilities(probs: list[float]):
     epsilon = 1e-50
     n = len(probs)
 
@@ -49,3 +52,32 @@ def normalize_log_probabilities(probs: list[float])-> None:
     for idx, p in enumerate(probs):
         probs[idx] = p / total
 
+
+# Yeesh. Built-in BWA bridge is sorely, sorely, sorely lacking in seq at present.
+def c_str_to_str(p: ptr[byte])-> str:
+    def _strlen(p: ptr[byte]):
+        n = 0
+        while p[n]: n += 1
+        return n
+    return str(p, _strlen(p))
+
+# Writes the SAM format header to an open (and empty) file
+def write_sam_header(out, ref, read_group: str, argv: list[str], version_str: str):
+    # HD
+    out.write("@HD\tVN:1.3\tSO:unsorted\n")
+
+    # SQ
+    n_seqs = int(ref.p[0]._bns[0]._n_seqs)
+    annos = [ref.p[0]._bns[0]._anns[i] for i in range(n_seqs)]
+    for anno in annos: # yeesh this is quite the hack
+        out.write(f"@SQ\tSN:{c_str_to_str(anno._name)}\tLN:{anno._len}\n")
+
+    # RG
+    if len(read_group) != 0:
+        out.write(f"{read_group}\n")
+
+    # PG
+    out.write(f"@PG\tID:ema-seq\tPN:ema-seq\tVN:{version_str}\tCL:{argv[0]}")
+    for arg in argv[1:]:
+        out.write(f" {arg}")
+    out.write("\n")

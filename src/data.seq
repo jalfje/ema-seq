@@ -1,3 +1,4 @@
+from fixes import *
 ## data.seq
 # Various data class and type definitions
 
@@ -5,7 +6,7 @@ type bc_t = int
 type chrom_t = int
 
 # FastQRecord: Contains data for a single barcoded FASTQ record
-class FastQRecord(object):
+class FastQRecord:
     barcode: bc_t
     ident: str
     read: str
@@ -19,13 +20,13 @@ class FastQRecord(object):
 
 # Barcodes are 16-element sequences (ACGT/acgt). This converts them to a 32-bit integer,
 # with higher bits based on later elements.
-encode_barcode_dict = {'a': bc_t(0), 'c': bc_t(1), 'g': bc_t(2), 't': bc_t(3),
-                       'A': bc_t(0), 'C': bc_t(1), 'G': bc_t(2), 'T': bc_t(3)}
+_encode_barcode_dict = {'a': bc_t(0), 'c': bc_t(1), 'g': bc_t(2), 't': bc_t(3),
+                        'A': bc_t(0), 'C': bc_t(1), 'G': bc_t(2), 'T': bc_t(3)}
 def encode_barcode(bc: str)-> bc_t:
     encoded = bc_t(0)
     for c in reversed(bc):
         encoded <<= 2
-        encoded += encode_barcode_dict[c]
+        encoded += _encode_barcode_dict[c]
     return encoded
 
 
@@ -33,7 +34,7 @@ def encode_barcode(bc: str)-> bc_t:
 ### Clouds
 
 
-_cloud_id = 0
+_cloud_id = id_generator()
 class Cloud:
     exp_cov: float
     weight: float
@@ -54,27 +55,37 @@ class Cloud:
         self.lo = 0
         self.parent = None
         self.child = None
-        self.ident = _cloud_id
-        _cloud_id += 1
+        self.ident = next(_cloud_id)
         self.bad = False
 
 def normalize_cloud_probabilities(clouds: list[Cloud]):
     # Find parent clouds, and normalize all child clouds based on that
     for cloud in clouds:
-        if cloud.parent != None:
+        if cloud.parent is not None:
             continue
 
         total = 0.0
         c = cloud
-        while c != None:
+        while c is not None:
             total += c.weight
             c = c.child
 
         c = cloud
-        while c != None:
+        while c is not None:
             c.weight /= total
             c = c.child
 
+
+
+### SingleReadAlignment
+
+# Returned by get_alignments
+class SingleReadAlignment:
+    edit_dist: int
+    cigar: str
+    # TODO: implement properly
+    def __init__(self: SingleReadAlignment):
+        pass
 
 
 ### SamRecord
@@ -87,7 +98,7 @@ class Alt:
     rev: bool
 
     def __init__(self: Alt):
-        pass # TODO:
+        pass # TODO: this
 
 # Needed to implement this myself because Seq's native implementation is sorely lacking
 class SamRecord:
@@ -121,6 +132,19 @@ class SamRecord:
 
     def __init__(self: SamRecord):
         pass # TODO: implement? or default-initialize everything? (do things even get default-initialized? I know bools do)
+
+    ## These have to be here due to github.com/seq-lang/seq/issues/168
+    def __eq__(self: SamRecord, other: SamRecord)-> bool:
+        raise NotImplementedError()
+    def __lt__(self: SamRecord, other: SamRecord)-> bool:
+        raise NotImplementedError()
+    def __gt__(self: SamRecord, other: SamRecord)-> bool:
+        raise NotImplementedError()
+    def __le__(self: SamRecord, other: SamRecord)-> bool:
+        raise NotImplementedError()
+    def __ge__(self: SamRecord, other: SamRecord)-> bool:
+        raise NotImplementedError()
+
 
 def sam_record_cmp_key(record: SamRecord):
     return (record.barcode, record.chrom, record.pos, record.ident)
