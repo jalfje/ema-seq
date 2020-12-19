@@ -1,0 +1,87 @@
+from fixes import *
+## bwabridge.seq
+# Extends seq's default bwa connection with ema-specific data and functions.
+# This is *extremely closely copied* from ema's bwabridge.h, just converted to seq syntax.
+
+import bio.bwa as bwa
+import util
+
+class EasyAlignment:
+    offset: int
+    aln_end: int
+    contig: str
+    score: int
+    read_start: int
+    read_end: int
+    chained_hit: bwa.mem_alnreg_t
+    rev: bool
+    sec: bool
+
+    def __init__(self: EasyAlignment):
+        pass
+
+    # equivalent to bwabridge::interpret_chain
+    def __init__(self: EasyAlignment, ref: bwa.bwaidx_t, aln: bwa.mem_alnreg_t):
+        contigs: bwa.bntseq_t = ref._bns[0]
+        contig: bwa.bntann1_t = contigs._anns[aln.rid]
+
+        if aln.rb < contigs._l_pac:
+            self.offset = aln.rb - int(contig._offset)
+            self.rev = False
+        else:
+            self.offset = int(contigs._l_pac) * 2 - 1 - aln.rb - int(contig._offset)
+            self.rev = True
+
+        if aln.re < contigs._l_pac:
+            self.aln_end = aln.re - int(contig._offset)
+        else:
+            self.aln_end = int(contigs._l_pac) * 2 - 1 - aln.re - int(contig._offset)
+
+        self.contig = util.c_str_to_str(contig._name)
+        self.sec = aln.secondary >= 0 or aln.secondary_all > 0
+        self.score = aln.score
+        self.read_start = aln.qb
+        self.read_end = aln.qe
+        self.chained_hit = aln
+
+class SingleReadAlignment:
+    pos: int
+    chrom: str
+    alt: bool
+    mapq: int
+    edit_dist: int
+    cigar: CIGAR
+    alt_mappings: str
+    score: int
+    sub: int
+    alt_score: int
+    rev: bool
+
+    def __init__(self: SingleReadAlignment):
+        self.cigar = list[int]()
+
+    # equivalent to bwabridge::interpret_single_read_alignment
+    def __init__(self: SingleReadAlignment, ref: bwa.bwaidx_t, aln: bwa.mem_aln_t):
+        contigs: bwa.bntseq_t = ref._bns[0]
+        contig: bwa.bntann1_t = contigs._anns[aln.rid]
+
+        self.pos = aln.pos
+        self.chrom = util.c_str_to_str(contig._name)
+        self.cigar = aln.cigar
+        self.alt = aln.alt
+        self.mapq = aln.mapq
+        self.rev = aln.rev
+        self.score = aln.score
+        self.sub = aln.sub
+        self.edit_dist = aln.NM
+        self.alt_score = aln.alt_score
+
+class EasyAlignmentPairs:
+    a1: EasyAlignment
+    a2: EasyAlignment
+    len1: int
+    len2: int
+
+    def __init__(self: EasyAlignmentPairs):
+        pass
+

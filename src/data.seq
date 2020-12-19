@@ -2,6 +2,8 @@ from fixes import *
 ## data.seq
 # Various data class and type definitions
 
+from bwabridge import SingleReadAlignment
+
 type bc_t = int
 type chrom_t = int
 
@@ -28,8 +30,6 @@ def encode_barcode(bc: str)-> bc_t:
         encoded <<= 2
         encoded += _encode_barcode_dict[c]
     return encoded
-
-
 
 ### Clouds
 
@@ -76,18 +76,6 @@ def normalize_cloud_probabilities(clouds: list[Cloud]):
             c = c.child
 
 
-
-### SingleReadAlignment
-
-# Returned by get_alignments
-class SingleReadAlignment:
-    edit_dist: int
-    cigar: str
-    # TODO: implement properly
-    def __init__(self: SingleReadAlignment):
-        pass
-
-
 ### SamRecord
 
 class Alt:
@@ -98,7 +86,7 @@ class Alt:
     rev: bool
 
     def __init__(self: Alt):
-        pass # TODO: this
+        pass
 
 # Needed to implement this myself because Seq's native implementation is sorely lacking
 class SamRecord:
@@ -127,11 +115,42 @@ class SamRecord:
     fq_mate: FastQRecord # Pointer to read that the mate was from
 
     selected_mate: SamRecord
-    alignment: SingleReadAlignment # TODO: implement SingleReadAlignment
+    alignment: SingleReadAlignment
     alts: list[Alt]
 
     def __init__(self: SamRecord):
-        pass # TODO: implement? or default-initialize everything? (do things even get default-initialized? I know bools do)
+        self.alts = list[Alt]()
+
+    # For bwa bridge. Equivalent to align::alignment_to_sam_rec
+    def __init__(self: SamRecord, fq: FastQRecord, fq_mate: FastQRecord, aln: SingleReadAlignment,
+                 mate: bool, clip: int, clip_edit_dist: int):
+        self.barcode = fq.barcode
+        self.chrom = chrom_index(aln.chrom) # TODO: chrom_index
+        self.pos = aln.pos + 1
+
+        self.ident = fq.ident[1:] # skip leading @
+
+        score_alignment(r, s) # TODO: score_alignment
+
+        self.fq = fq
+        self.fq_mate = fq_mate
+        self.alignment = aln
+        self.mate = mate
+        self.clip = clip
+        self.clip_edit_dist = clip_edit_dist
+
+        self.rev = aln.rev
+        self.unique = False
+        self.duplicate = False
+        self.active = True
+        self.visited = False
+
+        self.gamma = 0
+        self.cloud = None
+        self.selected_mate = None
+        self.alts = list[Alt]()
+
+
 
     ## These have to be here due to github.com/seq-lang/seq/issues/168
     def __eq__(self: SamRecord, other: SamRecord)-> bool:

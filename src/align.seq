@@ -3,6 +3,8 @@ from fixes import *
 ## Script which performs EMA alignment.
 
 import math
+import bio.bwa as bwa
+
 from data import *
 from samdict import *
 from util import normalize_log_probabilities
@@ -11,6 +13,7 @@ UNPAIRED_PENALTY: float = -15.0
 INSERT_MIN: int = -35
 INSERT_MAX: int = 750
 
+# Get penalty for mate pair distance.
 def mate_dist_penalty(mate1_pos: int, mate2_pos: int):
     d = mate1_pos - mate2_pos
     if INSERT_MIN <= d and d <= INSERT_MAX:
@@ -53,72 +56,91 @@ def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[
 
 # TODO: finish implementing subroutines/interfacing with BWA
 def get_alignments(ref, opts, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
-    return []
-    # # ref & opts are only ever passed to subcommands
+    # ref & opts are only ever passed to subcommands
+    # ref: bwaidx_t
+    # opts: mem_opt_t
 
-    # mate1_len = len(mate1.read)
-    # mate2_len = len(mate2.read)
+    mate1_len = len(mate1.read)
+    mate2_len = len(mate2.read)
 
-    # EXTRA_SEARCH_DEPTH = 12
+    EXTRA_SEARCH_DEPTH = 12
 
-    # # TODO: implement
-    # alignments: EasyAlignmentPairs = bwa_mem_mate_sw(ref, opts, mate1.read, mate1_len, mate2.read, mate2_len, 25)
-    # best_dist = -1
-    # aligns_added1 = 0
-    # aligns_added2 = 0
+    # TODO: implement bwa_mem_mate_sw
+    # bwa_mem_mate_sw is 90 lines in bwabridge. not implemented in seq, but a similar function is.
+    # this could be modified to work.
+    # actually! EasyAlignmentPairs might not be in seq, but alignments are in the form of mem_alnreg_t
+    # EasyAlignment is just a wrapper around mem_alnreg_t, converted in bwabridge::interpret_align
+    # DONE: EasyAlignment() and SingleReadAlignment() as conversions from mem_alnreg_t and mem_aln_t
+    alignments: EasyAlignmentPairs = bwa_mem_mate_sw(ref, opts, mate1.read, mate1_len, mate2.read, mate2_len, 25)
+    best_dist = -1
+    aligns_added1 = 0
+    aligns_added2 = 0
 
-    # sam_records = list[SamRecord]()
+    sam_records = list[SamRecord]()
 
-    # is_first = True
-    # for a in alignments.a1:
-    #     # TODO: implement
-    #     r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate1.read, mate1_len, a.chained_hit)
+    is_first = True
+    for a in alignments.a1:
+        # TODO: implement bwa_smith_waterman
+        # bwa_smith_waterman uses bwa bridge, including "arena", whatever that is
+        # ACTUALLY!
+        # This seems to be basically just bwa.align(mate1.read), and alignment can be acquired with bwa.reg2aln(mate1.read, reg)
+        # In particular: bwa_smith_waterman() seems to be just bwa.reg2aln()
+        #            and bwa_mem_mate_sw() is very similar to align(), but with some tomfoolery around mates
+        # SingleReadAlignment is just a wrapper around mem_aln_t, converted in bwabridge::interpret_single_read_alignment
+        r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate1.read, mate1_len, a.chained_hit)
 
-    #     clip = mate1_len - (a.read_end - a.read_start)
+        clip = mate1_len - (a.read_end - a.read_start)
 
-    #     if clip >= mate1_len / 2:
-    #         continue
+        if clip >= mate1_len / 2:
+            continue
 
-    #     dist = r.edit_dist + clip
-    #     if is_first:
-    #         best_dist = dist
-    #         is_first = False
-    #     elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
-    #         continue
+        dist = r.edit_dist + clip
+        if is_first:
+            best_dist = dist
+            is_first = False
+        elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
+            continue
 
-    #     # TODO: implement
-    #     r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
-    #     # TODO: implement
-    #     sam_records.append(alignment_to_sam_record(mate1, mate2, r, False, clip, dist))
-    #     aligns_added1 += 1
+        # TODO: implement mem_approx_mapq_se_insist
+        # This was implemented within align.c, and only uses mem_opt_t and mem_alnreg_t, which are both
+        # already sort-of supported by bio.bwa.
+        # mem_opt_t is missing a couple things:
+        # - mapQ_coef_len
+        # - mapQ_coef_fac
+        # - min_seed_len
+        # but does have `a` (match score) and `b` (mismatch penalty)
+        # mem_alnreg_t actually has everything! but this will require EasyAlignment to be implemented also
+        r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
+        sam_records.append(SamRecord(mate1, mate2, r, False, clip, dist))
+        aligns_added1 += 1
 
-    # if aligns_added1 == 1:
-    #     sam_records[-1].unique = True
+    if aligns_added1 == 1:
+        sam_records[-1].unique = True
 
-    # is_first = True
-    # for a in alignments.a2:
-    #     r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate2.read, mate2_len, a.chained_hit)
+    is_first = True
+    for a in alignments.a2:
+        r: SingleReadAlignment = bwa_smith_waterman(ref, opts, mate2.read, mate2_len, a.chained_hit)
 
-    #     clip = mate2_len - (a.read_end - a.read_start)
+        clip = mate2_len - (a.read_end - a.read_start)
 
-    #     if clip >= mate2_len / 2:
-    #         continue
+        if clip >= mate2_len / 2:
+            continue
 
-    #     dist = r.edit_dist + clip
-    #     if is_first:
-    #         best_dist = dist
-    #         is_first = False
-    #     elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
-    #         continue
+        dist = r.edit_dist + clip
+        if is_first:
+            best_dist = dist
+            is_first = False
+        elif (dist - best_dist) > EXTRA_SEARCH_DEPTH:
+            continue
 
-    #     r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
-    #     sam_records.append(alignment_to_sam_record(mate2, mate1, r, True, clip, dist))
-    #     aligns_added2 += 1
+        r.mapq = mem_approx_mapq_se_insist(opts, a.chained_hit)
+        sam_records.append(alignment_to_sam_record(mate2, mate1, r, True, clip, dist))
+        aligns_added2 += 1
 
-    # if aligns_added2 == 1:
-    #     sam_records[-1].unique = True
+    if aligns_added2 == 1:
+        sam_records[-1].unique = True
 
-    # return sam_records
+    return sam_records
 
 # Recompute gammas for a SamDictEntry in-place, returning the maximum gamma change
 def recompute_gammas(e: SamDictEntry, tech: PlatformProfile)-> float:
