@@ -5,7 +5,7 @@ from fixes import *
 
 import math
 import util
-import bio.bwa as seq_bwa
+from bio.bwa import *
 
 MEM_MAPQ_COEF: float = 30.0
 
@@ -16,26 +16,26 @@ class EasyAlignment:
     score: int
     read_start: int
     read_end: int
-    chained_hit: seq_bwa.mem_alnreg_t
+    chained_hit: mem_alnreg_t
     rev: bool
     sec: bool
 
     def __init__(self: EasyAlignment):
         pass
 
-    # equivalent to bwabridge::interpret_chain
-    def __init__(self: EasyAlignment, ref: seq_bwa.bwaidx_t, aln: seq_bwa.mem_alnreg_t):
-        contigs: seq_bwa.bntseq_t = ref._bns[0]
-        contig: seq_bwa.bntann1_t = contigs._anns[aln.rid]
+    # equivalent to bwabridge::interpret_align
+    def __init__(self: EasyAlignment, ref: bwaidx_t, aln: mem_alnreg_t):
+        contigs: bntseq_t = ref._bns[0]
+        contig: bntann1_t = contigs._anns[aln.rid]
 
-        if aln.rb < contigs._l_pac:
+        if aln.rb < int(contigs._l_pac):
             self.offset = aln.rb - int(contig._offset)
             self.rev = False
         else:
             self.offset = int(contigs._l_pac) * 2 - 1 - aln.rb - int(contig._offset)
             self.rev = True
 
-        if aln.re < contigs._l_pac:
+        if aln.re < int(contigs._l_pac):
             self.aln_end = aln.re - int(contig._offset)
         else:
             self.aln_end = int(contigs._l_pac) * 2 - 1 - aln.re - int(contig._offset)
@@ -64,9 +64,9 @@ class SingleReadAlignment:
         self.cigar = list[int]()
 
     # equivalent to bwabridge::interpret_single_read_alignment
-    def __init__(self: SingleReadAlignment, ref: seq_bwa.bwaidx_t, aln: seq_bwa.mem_aln_t):
-        contigs: seq_bwa.bntseq_t = ref._bns[0]
-        contig: seq_bwa.bntann1_t = contigs._anns[aln.rid]
+    def __init__(self: SingleReadAlignment, ref: bwaidx_t, aln: mem_aln_t):
+        contigs: bntseq_t = ref._bns[0]
+        contig: bntann1_t = contigs._anns[aln.rid]
 
         self.pos = aln.pos
         self.chrom = util.c_str_to_str(contig._name)
@@ -84,12 +84,16 @@ class EasyAlignmentPairs:
     a2: list[EasyAlignment]
 
     def __init__(self: EasyAlignmentPairs):
-        a1 = list[EasyAlignment]()
-        a2 = list[EasyAlignment]()
+        self.a1 = list[EasyAlignment]()
+        self.a2 = list[EasyAlignment]()
+
+    def __init__(self: EasyAlignmentPairs, a1: list[EasyAlignment], a2: list[EasyAlignment]):
+        self.a1 = a1
+        self.a2 = a2
 
 # Copied from align::mem_approx_mapq_se_insist, which was copied (with one change)
 # from bwamem::mem_approx_mapq_se
-def mem_approx_mapq_se_insist(bwa: seq_bwa.BWA, a: seq_bwa.mem_alnreg_t):
+def mem_approx_mapq_se_insist(bwa: BWA, a: mem_alnreg_t):
     opts = ptr[byte](bwa.opt)
     # opts is a pointer to a mem_opt_t object
         # - mapQ_coef_len # ptr[u32](ptr[byte](opts) + 28 * 4)[0]
@@ -128,13 +132,139 @@ def mem_approx_mapq_se_insist(bwa: seq_bwa.BWA, a: seq_bwa.mem_alnreg_t):
     if mapq < 0:
         mapq = 0
 
-    a_frac_rep = util.u32_to_float(a._frac_rep) # convert u32 to float
+    a_frac_rep = util.u32_to_float(a._frac_rep)
     mapq = int(float(mapq) * (1.0 - a_frac_rep) + 0.499)
     return mapq
 
+type mem_pestat_t(_low: i32,
+                  _high: i32,
+                  _failed: i32,
+                  _avg: float,
+                  _std: float):
 
-def bwa_mem_mate_sw(bwa: seq_bwa.BWA, read1: seq, len1: int, read2: seq, len2: int, score_delta: int)-> EasyAlignmentPairs:
-    raise NotImplementedError() # TODO: implement
+    @property
+    def low(self: mem_pestat_t)-> int:
+        return int(self._low)
 
-def bwa_smith_waterman(bwa: seq_bwa.BWA, read: seq, len: int, aln: seq_bwa.mem_alnreg_t)-> SingleReadAlignment:
-    raise NotImplementedError() # TODO: implement
+    @property
+    def high(self: mem_pestat_t)-> int:
+        return int(self._high)
+
+    @property
+    def failed(self: mem_pestat_t)-> bool:
+        return self._failed != i32(0)
+
+    @property
+    def avg(self: mem_pestat_t)-> float:
+        return self._avg
+
+    @property
+    def std(self: mem_pestat_t)-> float:
+        return self._std
+
+import core.gc as gc
+cimport free(ptr[byte])
+
+_pes: ptr[mem_pestat_t] = ptr[mem_pestat_t](0)
+def init_bwa_pes():
+    global _pes
+
+    NUM_PES = 4
+
+    pes_n_bytes = NUM_PES * gc.sizeof[mem_pestat_t]()
+    _pes = ptr[mem_pestat_t](gc.alloc_atomic(pes_n_bytes))
+
+    ptr[i32](ptr[byte](_pes) + 0 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+    ptr[i32](ptr[byte](_pes) + 1 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(0)
+    ptr[i32](ptr[byte](_pes) + 2 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+    ptr[i32](ptr[byte](_pes) + 3 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+
+    for idx in range(4):
+        ptr[i32](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 0 * 4)[0] = i32(-35)
+        ptr[i32](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 1 * 4)[0] = i32(500)
+        ptr[float](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 3 * 4)[0] = float(200.0)
+        ptr[float](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 5 * 4)[0] = float(100.0)
+
+# Marshals array of mem_alnreg_t objects from c-managed memory to garbage-collected memory.
+# Takes a pointer to a single mem_alnreg_v item.
+def _marshal_to_gc(arr: ptr[mem_alnreg_v]):
+    n_bytes = arr[0].n * gc.sizeof[mem_alnreg_t]()
+    copy = gc.alloc_atomic(n_bytes)
+    str.memcpy(ptr[byte](copy), ptr[byte](arr[0].a), n_bytes)
+    free(ptr[byte](arr[0].a))
+    ptr[ptr[mem_alnreg_t]](ptr[byte](arr) + 16)[0] = ptr[mem_alnreg_t](copy)  # note offset
+
+
+from BWA_LIB cimport mem_align1_core(ptr[mem_alnreg_v], cobj, cobj, ptr[bntseq_t], cobj, i32, ptr[byte], cobj)
+from BWA_LIB cimport mem_matesw(cobj, ptr[bntseq_t], cobj, ptr[mem_pestat_t], ptr[mem_alnreg_t], i32, ptr[byte], ptr[mem_alnreg_v]) -> i32
+
+def bwa_mem_mate_sw(bwa: BWA, read1: seq, read2: seq, score_delta: int)-> EasyAlignmentPairs:
+    # bwa.align(seq) returns mem_alnreg_v; based on calling mem_align1()
+    # OTOH, bwabridge::bwa_mem_mate_sw returns EasyAlignmentPairs. These come from manipulating
+    # mem_alnreg_v objects from calling mem_align1_core().
+    # mem_align1() calls mem_align1_core(); from mem_align1_core:
+    # // the difference from mem_align1_core() is mem_align1(): 1) calls mem_mark_primary_se(); 2) does not modify the input sequence
+    # In bwabridge::bwa_mem_mate_sw, the input sequence is copied first anyway, and the only modification is to convert to 2-bit seq,
+    # which is then used in bwa::mem_matesw.
+    # SO
+    # bwabridge: mem_align1_core + mem_matesw
+    # seq.bwa.align: mem_align1_core + mem_mark_primary_se
+    # so what are the effects of mem_matesw vs mem_mark_primary_se?
+    # clearly mem_matesw is substantially different, so we should probably use it
+    NULL = ptr[byte](0)
+    global _pes
+
+    read1_copy = copy(str(read1))
+    read2_copy = copy(str(read2))
+    len1 = len(read1_copy)
+    len2 = len(read2_copy)
+
+    results1 = mem_alnreg_v()
+    results2 = mem_alnreg_v()
+    mem_align1_core(__ptr__(results1), bwa.opt, bwa.p[0]._bwt, bwa.p[0]._bns, bwa.p[0]._pac, i32(len1), read1_copy.ptr, NULL)
+    mem_align1_core(__ptr__(results2), bwa.opt, bwa.p[0]._bwt, bwa.p[0]._bns, bwa.p[0]._pac, i32(len2), read2_copy.ptr, NULL)
+
+    aligns1 = [EasyAlignment(bwa.p[0], results1.a[i]) for i in range(results1.n)]
+    aligns2 = [EasyAlignment(bwa.p[0], results2.a[i]) for i in range(results2.n)]
+
+    best_score1 = 0
+    best_score2 = 0
+
+    for a in aligns1:
+        if a.score > best_score1:
+            best_score1 = a.score
+    for a in aligns2:
+        if a.score > best_score2:
+            best_score2 = a.score
+
+    num = 0
+    for idx in range(results2.n):
+        if aligns2[idx].score >= best_score2 - score_delta:
+            aln_ptr: ptr[mem_alnreg_t] = results2.a + idx
+            mem_matesw(bwa.opt, bwa.p[0]._bns, bwa.p[0]._pac, _pes, aln_ptr, i32(len1), read1_copy.ptr, __ptr__(results1))
+            num += 1
+            if num > 50:
+                break
+
+    aligns1 = [EasyAlignment(bwa.p[0], results1.a[i]) for i in range(results1.n)]
+
+    num = 0
+    for idx in range(results1.n):
+        if aligns1[idx].score >= best_score1 - score_delta:
+            aln_ptr: ptr[mem_alnreg_t] = results1.a + idx
+            mem_matesw(bwa.opt, bwa.p[0]._bns, bwa.p[0]._pac, _pes, aln_ptr, i32(len2), read2_copy.ptr, __ptr__(results2))
+            num += 1
+            if num > 50:
+                break
+
+    aligns2 = [EasyAlignment(bwa.p[0], results2.a[i]) for i in range(results2.n)]
+
+    _marshal_to_gc(__ptr__(results1))
+    _marshal_to_gc(__ptr__(results2))
+
+    return EasyAlignmentPairs(aligns1, aligns2)
+
+
+def bwa_smith_waterman(bwa: BWA, read: seq, reg: mem_alnreg_t)-> SingleReadAlignment:
+    aln: mem_aln_t = bwa.reg2aln(read, reg)
+    return SingleReadAlignment(bwa.p[0], aln)

@@ -4,6 +4,7 @@ from fixes import *
 
 import math
 import bio.bwa as bwa
+from core.c_stubs import seq_i32_to_float
 
 # Barcodes are 16-element sequences (ACGT/acgt). This converts them to a 32-bit integer,
 # with higher bits based on later elements.
@@ -76,7 +77,7 @@ def normalize_log_probabilities(probs: list[float]):
 
 
 def u32_to_float(p: u32)-> float:
-    raise NotImplementedError() # TODO: implement
+    return seq_i32_to_float(i32(p))
 
 # Yeesh. Built-in BWA bridge is sorely, sorely, sorely lacking in seq at present.
 # This might be able to be done with str.from_ptr()?

@@ -69,22 +69,9 @@ def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[
         idx += 1
     return (start_idx, idx)
 
-# TODO: finish implementing subroutines/interfacing with BWA
 def get_alignments(bwa: seq_bwa.BWA, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
-    # ref & opts are only ever passed to subcommands
-    # ref: bwaidx_t
-    # opts: mem_opt_t
 
-    mate1_len = len(mate1.read)
-    mate2_len = len(mate2.read)
-
-    # TODO: implement bwa_mem_mate_sw
-    # bwa_mem_mate_sw is 90 lines in bwabridge. not implemented in seq, but a similar function is.
-    # this could be modified to work.
-    # actually! EasyAlignmentPairs might not be in seq, but alignments are in the form of mem_alnreg_t
-    # EasyAlignment is just a wrapper around mem_alnreg_t, converted in bwabridge::interpret_align
-    # DONE: EasyAlignment() and SingleReadAlignment() as conversions from mem_alnreg_t and mem_aln_t
-    alignments: EasyAlignmentPairs = bwa_mem_mate_sw(bwa, mate1.read, mate1_len, mate2.read, mate2_len, 25)
+    alignments: EasyAlignmentPairs = bwa_mem_mate_sw(bwa, mate1.read, mate2.read, 25)
     best_dist = -1
     aligns_added1 = 0
     aligns_added2 = 0
@@ -93,15 +80,11 @@ def get_alignments(bwa: seq_bwa.BWA, mate1: FastQRecord, mate2: FastQRecord)-> l
 
     is_first = True
     for a in alignments.a1:
-        # TODO: implement bwa_smith_waterman
-        # This seems to be basically just bwa.align(mate1.read), and alignment can be acquired with bwa.reg2aln(mate1.read, reg)
-        # In particular: bwa_smith_waterman() seems to be just bwa.reg2aln()
-        #            and bwa_mem_mate_sw() is very similar to align(), but with some tomfoolery around mates
-        r: SingleReadAlignment = bwa_smith_waterman(bwa, mate1.read, mate1_len, a.chained_hit)
+        r: SingleReadAlignment = bwa_smith_waterman(bwa, mate1.read, a.chained_hit)
 
-        clip = mate1_len - (a.read_end - a.read_start)
+        clip = len(mate1.read) - (a.read_end - a.read_start)
 
-        if clip >= mate1_len / 2:
+        if clip >= len(mate1.read) / 2:
             continue
 
         dist = r.edit_dist + clip
@@ -120,11 +103,11 @@ def get_alignments(bwa: seq_bwa.BWA, mate1: FastQRecord, mate2: FastQRecord)-> l
 
     is_first = True
     for a in alignments.a2:
-        r: SingleReadAlignment = bwa_smith_waterman(bwa, mate2.read, mate2_len, a.chained_hit)
+        r: SingleReadAlignment = bwa_smith_waterman(bwa, mate2.read, a.chained_hit)
 
-        clip = mate2_len - (a.read_end - a.read_start)
+        clip = len(mate2.read) - (a.read_end - a.read_start)
 
-        if clip >= mate2_len / 2:
+        if clip >= len(mate2.read) / 2:
             continue
 
         dist = r.edit_dist + clip
@@ -335,6 +318,7 @@ def find_clouds_and_align_special_fastq(bwa: seq_bwa.BWA, fqx_file, out_file, ap
     max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
     read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:].split()[0]
     init_alignment_score_weights(tech.error_rate, INDEL_RATE, CLIP_RATE)
+    init_bwa_pes() # from bwabridge
 
     bc_group_end_idx = 0
     total_records = len(fq1)

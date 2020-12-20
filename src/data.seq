@@ -2,6 +2,7 @@ from fixes import *
 ## data.seq
 # Various data class and type definitions
 
+import math
 from bwabridge import SingleReadAlignment
 
 # Global variable for simplicity; consistent with C version. Not ideal coding practices here.
