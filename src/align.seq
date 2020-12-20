@@ -340,7 +340,7 @@ def find_clouds_and_align_special_fastq(bwa: seq_bwa.BWA, fqx_file, out_file, ap
         worth_doing_full_em = (bc_range[1] - bc_range[0]) >= 30
 
         ### Generate list of alignments for reads in this barcode group
-        sam_records = [aln for mate1, mate2 in zip(fq1[bc_range[0], bc_range[1]], fq2[bc_range[0], bc_range[1]]) for aln in get_alignments(bwa, mate1, mate2)]
+        sam_records = [aln for mate1, mate2 in zip(fq1[bc_range[0]:bc_range[1]], fq2[bc_range[0]:bc_range[1]]) for aln in get_alignments(bwa, mate1, mate2)]
 
         sam_records = sorted(sam_records, key=sam_record_cmp_key)
 
