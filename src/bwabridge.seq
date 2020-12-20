@@ -194,35 +194,34 @@ def _marshal_to_gc(arr: ptr[mem_alnreg_v]):
     free(ptr[byte](arr[0].a))
     ptr[ptr[mem_alnreg_t]](ptr[byte](arr) + 16)[0] = ptr[mem_alnreg_t](copy)  # note offset
 
+from BWA_LIB cimport mem_align1_core(ptr[mem_alnreg_v], cobj, cobj, ptr[bntseq_t], cobj, i32, ptr[u8], u64)
+from BWA_LIB cimport mem_matesw(cobj, ptr[bntseq_t], cobj, ptr[mem_pestat_t], ptr[mem_alnreg_t], i32, ptr[u8], ptr[mem_alnreg_v]) -> i32
 
-from BWA_LIB cimport mem_align1_core(ptr[mem_alnreg_v], cobj, cobj, ptr[bntseq_t], cobj, i32, ptr[byte], cobj)
-from BWA_LIB cimport mem_matesw(cobj, ptr[bntseq_t], cobj, ptr[mem_pestat_t], ptr[mem_alnreg_t], i32, ptr[byte], ptr[mem_alnreg_v]) -> i32
+# Matches lookup table in BWA
+_seq_convert_lookup = {s'a': u8(0), s'c': u8(1), s'g': u8(2), s't': u8(3),
+                       s'A': u8(0), s'C': u8(1), s'G': u8(2), s'T': u8(3),
+                       s'-': u8(5)}
+
+def _seq_convert(read: seq)-> ptr[u8]:
+    out = ptr[u8](gc.alloc_atomic(gc.sizeof[u8]() * len(read)))
+    for idx, c in enumerate(read):
+        out[idx] = _seq_convert_lookup.get(c, u8(4))
+    return out
 
 def bwa_mem_mate_sw(bwa: BWA, read1: seq, read2: seq, score_delta: int)-> EasyAlignmentPairs:
-    # bwa.align(seq) returns mem_alnreg_v; based on calling mem_align1()
-    # OTOH, bwabridge::bwa_mem_mate_sw returns EasyAlignmentPairs. These come from manipulating
-    # mem_alnreg_v objects from calling mem_align1_core().
-    # mem_align1() calls mem_align1_core(); from mem_align1_core:
-    # // the difference from mem_align1_core() is mem_align1(): 1) calls mem_mark_primary_se(); 2) does not modify the input sequence
-    # In bwabridge::bwa_mem_mate_sw, the input sequence is copied first anyway, and the only modification is to convert to 2-bit seq,
-    # which is then used in bwa::mem_matesw.
-    # SO
-    # bwabridge: mem_align1_core + mem_matesw
-    # seq.bwa.align: mem_align1_core + mem_mark_primary_se
-    # so what are the effects of mem_matesw vs mem_mark_primary_se?
-    # clearly mem_matesw is substantially different, so we should probably use it
-    NULL = ptr[byte](0)
     global _pes
 
-    read1_copy = copy(str(read1))
-    read2_copy = copy(str(read2))
-    len1 = len(read1_copy)
-    len2 = len(read2_copy)
+    len1 = len(read1)
+    len2 = len(read2)
+    read1_copy = _seq_convert(read1)
+    read2_copy = _seq_convert(read2)
 
     results1 = mem_alnreg_v()
     results2 = mem_alnreg_v()
-    mem_align1_core(__ptr__(results1), bwa.opt, bwa.p[0]._bwt, bwa.p[0]._bns, bwa.p[0]._pac, i32(len1), read1_copy.ptr, NULL)
-    mem_align1_core(__ptr__(results2), bwa.opt, bwa.p[0]._bwt, bwa.p[0]._bns, bwa.p[0]._pac, i32(len2), read2_copy.ptr, NULL)
+
+    NULL = u64(0)
+    mem_align1_core(__ptr__(results1), bwa.opt, bwa.p[0]._bwt, bwa.p[0]._bns, bwa.p[0]._pac, i32(len1), read1_copy, NULL)
+    mem_align1_core(__ptr__(results2), bwa.opt, bwa.p[0]._bwt, bwa.p[0]._bns, bwa.p[0]._pac, i32(len2), read2_copy, NULL)
 
     aligns1 = [EasyAlignment(bwa.p[0], results1.a[i]) for i in range(results1.n)]
     aligns2 = [EasyAlignment(bwa.p[0], results2.a[i]) for i in range(results2.n)]
@@ -241,7 +240,7 @@ def bwa_mem_mate_sw(bwa: BWA, read1: seq, read2: seq, score_delta: int)-> EasyAl
     for idx in range(results2.n):
         if aligns2[idx].score >= best_score2 - score_delta:
             aln_ptr: ptr[mem_alnreg_t] = results2.a + idx
-            mem_matesw(bwa.opt, bwa.p[0]._bns, bwa.p[0]._pac, _pes, aln_ptr, i32(len1), read1_copy.ptr, __ptr__(results1))
+            mem_matesw(bwa.opt, bwa.p[0]._bns, bwa.p[0]._pac, _pes, aln_ptr, i32(len1), read1_copy, __ptr__(results1))
             num += 1
             if num > 50:
                 break
@@ -252,13 +251,14 @@ def bwa_mem_mate_sw(bwa: BWA, read1: seq, read2: seq, score_delta: int)-> EasyAl
     for idx in range(results1.n):
         if aligns1[idx].score >= best_score1 - score_delta:
             aln_ptr: ptr[mem_alnreg_t] = results1.a + idx
-            mem_matesw(bwa.opt, bwa.p[0]._bns, bwa.p[0]._pac, _pes, aln_ptr, i32(len2), read2_copy.ptr, __ptr__(results2))
+            mem_matesw(bwa.opt, bwa.p[0]._bns, bwa.p[0]._pac, _pes, aln_ptr, i32(len2), read2_copy, __ptr__(results2))
             num += 1
             if num > 50:
                 break
 
     aligns2 = [EasyAlignment(bwa.p[0], results2.a[i]) for i in range(results2.n)]
 
+    # Frees memory allocated by C to mem_alnreg_v::a arrays
     _marshal_to_gc(__ptr__(results1))
     _marshal_to_gc(__ptr__(results2))
 
