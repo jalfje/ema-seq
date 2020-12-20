@@ -58,7 +58,7 @@ def print_help():
 	print "  -i <index>: index to follow 'BX' tag in SAM output ['1']"
 	#print "  -t <threads>: set number of threads [1]"
 	print "  all other arguments (only for -x): list of all preprocessed inputs"
-    print ""
+	print ""
 	print "help: print this help message"
 
 # Parse options & run preprocessing mode

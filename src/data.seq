@@ -132,7 +132,7 @@ class SamRecord:
     mate: bool
     rev: bool
     duplicate: bool
-    unique: bool
+    unique: bool # Note: unused
     active: bool
     visited: bool
 

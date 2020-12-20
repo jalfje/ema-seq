@@ -27,8 +27,8 @@ class SamDictEntry:
     def find_best_record(self: SamDictEntry)-> SamRecord:
         best_idx = 0
         best_gamma = -1.0
-        for idx, z in enumerate(zip(self.cand_records, self.gammas)):
-            r, g = z # hack to get around seq's inability to double-unzip in for loops
+        assert(len(self.cand_records) != 0)
+        for (idx, (r, g)) in enumerate(zip(self.cand_records, self.gammas)):
             if not r.active:
                 continue
 
@@ -37,7 +37,7 @@ class SamDictEntry:
                 best_gamma = g
 
         chosen = self.cand_records[best_idx]
-        alt = chosen.alts[0]
+        alt = chosen.alts[0] if len(chosen.alts) != 0 else Alt()
         chosen.alts = list[Alt]() # clear alt list
         chosen.gamma = best_gamma # could be -1.0, if no candidate records are active
         chosen.cloud = self.cand_clouds[best_idx]
@@ -46,8 +46,7 @@ class SamDictEntry:
             second_best_idx = 0
             second_best_gamma = -1.0
 
-            for idx, z in enumerate(zip(self.cand_records, self.gammas)):
-                r, g = z # hack to get around seq's inability to double-unzip in for loops
+            for (idx, (r, g)) in enumerate(zip(self.cand_records, self.gammas)):
                 if not r.active:
                     continue
 
