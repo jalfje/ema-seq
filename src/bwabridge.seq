@@ -96,14 +96,15 @@ class EasyAlignmentPairs:
 def mem_approx_mapq_se_insist(bwa: BWA, a: mem_alnreg_t):
     opts = ptr[byte](bwa.opt)
     # opts is a pointer to a mem_opt_t object
-        # - mapQ_coef_len # ptr[u32](ptr[byte](opts) + 28 * 4)[0]
-        # - mapQ_coef_fac # int(ptr[i32](ptr[byte](opts) + 29 * 4)[0])
-        # - min_seed_len  # int(ptr[i32](ptr[byte](opts) + 15 * 4)[0])
+    # based on extensive testing:
+    # - min_seed_len  # int(ptr[i32](ptr[byte](opts) + 16 * 4)[0])
+    # - mapQ_coef_len # ptr[u32](ptr[byte](opts) + 29 * 4)[0]
+    # - mapQ_coef_fac # int(ptr[i32](ptr[byte](opts) + 30 * 4)[0])
     opt_a = int(ptr[i32](opts + 0 * 4)[0])
     opt_b = int(ptr[i32](opts + 1 * 4)[0])
-    opt_min_seed_len = int(ptr[i32](opts + 15 * 4)[0])
-    opt_mapQ_coef_len = util.u32_to_float(ptr[u32](opts + 28 * 4)[0])
-    opt_mapQ_coef_fac = int(ptr[i32](opts + 29 * 4)[0])
+    opt_min_seed_len = int(ptr[i32](opts + 16 * 4)[0])
+    opt_mapQ_coef_len = util.u32_to_float(ptr[u32](opts + 29 * 4)[0])
+    opt_mapQ_coef_fac = int(ptr[i32](opts + 30 * 4)[0])
 
     sub = a.sub if a.sub != 0 else opt_min_seed_len * opt_a
     sub = max(a.csub, sub)

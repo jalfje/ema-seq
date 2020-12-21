@@ -70,7 +70,6 @@ def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[
     return (start_idx, idx)
 
 def get_alignments(bwa: seq_bwa.BWA, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
-
     alignments: EasyAlignmentPairs = bwa_mem_mate_sw(bwa, mate1.read, mate2.read, 25)
     best_dist = -1
     aligns_added1 = 0
@@ -207,8 +206,6 @@ def sam_record_string(record: SamRecord, mate: SamRecord, read_group_id: str, bx
 
         assert(not math.isnan(gamma))
 
-        # TODO: determine why mapq is always 0
-
         gamma_mapq = int(-10.0 * math.log10(1.0 - gamma)) if gamma <= 0.999999 else 60
         score_mapq = record.score_mapq
         bwa_mapq = record.mapq
@@ -292,7 +289,7 @@ def sam_record_string(record: SamRecord, mate: SamRecord, read_group_id: str, bx
     if len(alts) > 0:
         out_str += "\tXA:Z:"
         for alt in alts:
-            out_str += f"{alt.chrom},{'-' if alt.rev else '+'}{alt.pos}"
+            out_str += f"{alt.chrom},{'-' if alt.rev else '+'}{alt.pos},"
             out_str += str(alt.cigar)
             out_str += f",{alt.edit_dist};"
 
@@ -341,7 +338,6 @@ def find_clouds_and_align_special_fastq(bwa: seq_bwa.BWA, fqx_file, out_file, ap
 
         ### Generate list of alignments for reads in this barcode group
         sam_records = [aln for mate1, mate2 in zip(fq1[bc_range[0]:bc_range[1]], fq2[bc_range[0]:bc_range[1]]) for aln in get_alignments(bwa, mate1, mate2)]
-
         sam_records = sorted(sam_records, key=sam_record_cmp_key)
 
         ### Find and process clouds

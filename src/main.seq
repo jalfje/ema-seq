@@ -216,8 +216,8 @@ def run_align(options: list[str], program_argv: list[str]):
     _chroms = [entry.name for entry in FAI(fai_filename)]
 
     bwa = BWA(ref)
-    # Based on config in align.c::bwa_init
-    p = ptr[i32](ptr[byte](bwa.opt) + 20 * 4); p[0] = i32(3000) # opt->max_occ = 3000
+    # Based on config in ema::align::bwa_init and memory mapping in bwa::bwamem.h::mem_opt_t
+    p = ptr[i32](ptr[byte](bwa.opt) + 21 * 4); p[0] = i32(3000) # opt->max_occ = 3000
 
     util.write_sam_header(out_file, bwa.p[0], rg, program_argv, VERSION)
 
