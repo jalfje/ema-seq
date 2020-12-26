@@ -166,6 +166,7 @@ type mem_pestat_t(_low: i32,
 import core.gc as gc
 cimport free(ptr[byte])
 
+# NOTE: Only used in a constant context (i.e. after initialization, never changed.)
 _pes: ptr[mem_pestat_t] = ptr[mem_pestat_t](0)
 def init_bwa_pes():
     global _pes
