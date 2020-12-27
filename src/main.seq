@@ -4,6 +4,7 @@ from fixes import *
 
 import sys
 import getopt
+import time
 
 from bio.bwa import *
 from bio.fai import *
@@ -11,6 +12,7 @@ from bio.fastq import FASTQ
 
 from techs import PlatformProfile, platform_profiles
 from align import *
+from input_reader import InputReader
 import util
 
 KB = 1024
@@ -234,25 +236,29 @@ def run_align(options: list[str]):
             print "Warning: No input files specified; nothing to do"
             exit_success()
 
-        open_input_files = [open(f, "r") for f in unused_opts]
-
-        # TODO Future work: parallelize across t threads
-        for input_file in open_input_files:
-            find_clouds_and_align_special_fastq(bwa, input_file, out_file, apply_opt, tech, 1, rg, bx_index)
-            input_file.close()
-
-    elif len(fqx) != 0:
-        fqx_file = open(fqx, "r")
-
-        find_clouds_and_align_special_fastq(bwa, fqx_file, out_file, apply_opt, tech, t, rg, bx_index)
-
-        fqx_file.close()
-
-    else: # standard fastq
-        fq1_file = FASTQ(fq1)
-        fq2_file = FASTQ(fq2) if len(fq2) != 0 else fq1_file
-
-        find_clouds_and_align_standard_fastq(bwa, fq1_file, fq2_file, out_file, apply_opt, tech, t, rg, bx_index)
+        # TODO: parallelize across t threads
+        for filename in unused_opts:
+            with open(filename, "r") as input_file:
+                reader = InputReader("special", tech, input_file, None)
+                find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, 1, rg, bx_index)
+    elif len(fqx) != 0: # special
+        # TODO: Test
+        # TODO: Figure out if this works with stdin, and if not, how to make it work
+        with open(fqx, "r") as input_file:
+            reader = InputReader("special", tech, input_file, None)
+            find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, t, rg, bx_index)
+    elif len(fq2) == 0: # interleaved single-file standard fastq
+        # TODO: Test
+        # TODO: Figure out if this works with stdin, and if not, how to make it work
+        with open(fq1, "r") as input_file:
+            reader = InputReader("interleaved", tech, input_file, None)
+            find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, t, rg, bx_index)
+    else: # standard fastq; one file for reads and one file for read mates
+        # TODO: Test
+        with open(fq1, "r") as read_file:
+            with open(fq2, "r") as mate_file:
+                reader = InputReader("normal", tech, read_file, mate_file)
+                find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, t, rg, bx_index)
 
     out_file.close()
     exit_success()

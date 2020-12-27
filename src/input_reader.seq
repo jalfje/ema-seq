@@ -1,0 +1,138 @@
+from fixes import *
+## input_reader.seq
+# Provides the InputReader class, which provides an interface for multiple
+
+import threading
+import util
+from data import FastQRecord
+from techs import PlatformProfile
+
+# This whole thing is a little janky, but whatever.
+# TODO: Test interleaved/normal inputs. Multi-input special FASTQ works identically to previous version,
+# but the previous version did not have interleaved/normal inputs as options.
+class InputReader:
+    _mtx: threading.Lock
+    _tech: PlatformProfile
+    _read_func: function[tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]], InputReader]
+    _read_file: File
+    _pair_file: File # used for "normal" fastqs
+
+    _records: list[tuple[FastQRecord, FastQRecord]] # Used for "special" fastqs
+    _record_idx: int # Used for "special" fastqs
+    _start_pair: tuple[FastQRecord, FastQRecord] # Used for "interleaved" or "normal" fastqs
+
+    # files must be opened and closed externally to this function
+    # pair_file is only used in "normal" mode
+    def __init__(self: InputReader, mode: str, tech: PlatformProfile, read_file: File, pair_file: File):
+        self._mtx = threading.Lock()
+        self._tech = tech
+        self._read_file = read_file
+        match mode:
+            case "special":
+                self._read_func = InputReader._read_special_fastq_group
+                self._pair_file = None
+                sorted_lines = sorted([line for line in self._read_file])
+                self._records = [self._read_special_fastq_record(line) for line in sorted_lines]
+                self._record_idx = 0
+            case "interleaved":
+                self._read_func = InputReader._read_interleaved_fastq_group
+                self._pair_file = None
+                self._start_pair = (None, None)
+            case "normal":
+                self._read_func = InputReader._read_normal_fastq_group
+                self._pair_file = pair_file
+                self._start_pair = (None, None)
+            case _:
+                raise NotImplementedError()
+
+    def get_next_barcode_group(self: InputReader)-> tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]]:
+        out = (False, 0, list[tuple[FastQRecord, FastQRecord]]())
+        self._mtx.acquire()
+        try:
+            out = self._read_func(self)
+        finally:
+            self._mtx.release()
+        return out
+
+    def _read_special_fastq_group(self: InputReader)-> tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]]:
+        if self._record_idx >= len(self._records):
+            return (False, 0, list[tuple[FastQRecord, FastQRecord]]())
+        start_idx = self._record_idx
+        idx = start_idx
+        barcode = self._records[start_idx][0].barcode
+        while idx < len(self._records) and self._records[idx][0].barcode == barcode:
+            idx += 1
+        self._record_idx = idx
+        return (True, barcode, self._records[start_idx:idx])
+
+    # TODO: investigate rewriting this in terms of FASTQ objects
+    def _read_interleaved_fastq_group(self: InputReader)-> tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]]:
+        if self._is_sentinel(self._start_pair):
+            self._start_pair = self._read_interleaved_fastq_pair(self._read_file)
+            if self._is_sentinel(self._start_pair):
+                return (False, 0, list[tuple[FastQRecord, FastQRecord]]())
+        assert(self._start_pair[0].barcode == self._start_pair[1].barcode)
+        pair_list = [self._start_pair]
+        barcode = self._start_pair[0].barcode
+        while True:
+            next_pair = self._read_interleaved_fastq_pair(self._read_file)
+            if self._is_sentinel(next_pair) or next_pair[0].barcode != barcode:
+                self._start_pair = next_pair
+                return (True, barcode, pair_list)
+            pair_list.append(next_pair)
+
+    # TODO: investigate rewriting this in terms of FASTQ objects
+    def _read_normal_fastq_group(self: InputReader)-> tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]]:
+        if self._is_sentinel(self._start_pair):
+            self._start_pair = self._read_normal_fastq_pair(self._read_file, self._pair_file)
+            if self._is_sentinel(self._start_pair):
+                return (False, 0, list[tuple[FastQRecord, FastQRecord]]())
+        assert(self._start_pair[0].barcode == self._start_pair[1].barcode)
+        pair_list = [self._start_pair]
+        barcode = self._start_pair[0].barcode
+        while True:
+            next_pair = self._read_normal_fastq_pair(self._read_file, self._pair_file)
+            if self._is_sentinel(next_pair) or next_pair[0].barcode != barcode:
+                self._start_pair = next_pair
+                return (True, barcode, pair_list)
+            pair_list.append(next_pair)
+
+    # Parse a pair of reads from a specially-formatted EMA-FASTQ record
+    def _read_special_fastq_record(self: InputReader, record: str)-> tuple[FastQRecord, FastQRecord]:
+        values = record.split(" ")
+        barcode = util.encode_barcode(values[0])
+
+        read1 = FastQRecord(barcode, values[1], values[2], values[3])
+        read2 = FastQRecord(barcode, values[1], values[4], values[5])
+        return (read1, read2)
+
+    # Read and parse a single read from a standard FASTQ file
+    def _read_fastq_record(self: InputReader, f: File)-> FastQRecord:
+        lines = list[str]()
+        # Read 4 lines
+        try:
+            lines = [next(f) for _ in range(4)]
+        except StopIteration:
+            return None # TODO: test this
+        ident = lines[0]
+        read = lines[1]
+        qual = lines[3]
+        record = FastQRecord(0, ident, read, qual)
+        record.barcode = self._tech.extract_barcode(record) # note that this modifies record as a side-effect
+        return record
+
+    def _read_interleaved_fastq_pair(self: InputReader, f: File)-> tuple[FastQRecord, FastQRecord]:
+        read = self._read_fastq_record(f)
+        mate = self._read_fastq_record(f)
+        return (read, mate)
+
+    def _read_normal_fastq_pair(self: InputReader, f1: File, f2: File)-> tuple[FastQRecord, FastQRecord]:
+        read = self._read_fastq_record(f1)
+        mate = self._read_fastq_record(f2)
+        return (read, mate)
+
+    def _is_sentinel(self: InputReader, start_pair: tuple[FastQRecord, FastQRecord]):
+        return start_pair[0] is None or start_pair[1] is None
+
+
+

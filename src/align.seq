@@ -8,12 +8,19 @@ import bio.bwa as seq_bwa
 from data import *
 from samdict import *
 from bwabridge import *
+from input_reader import InputReader
 import util
 
 UNPAIRED_PENALTY: float = -15.0
 EXTRA_SEARCH_DEPTH: int = 12
 INSERT_MIN: int = -35
 INSERT_MAX: int = 750
+
+MAX_CLOUDS_PER_BC_LARGE: int = 10000000
+MAX_CLOUDS_PER_BC_SMALL: int = 1000000
+EM_ITERS: int = 5
+INDEL_RATE: float = 0.0001
+CLIP_RATE: float = 0.03
 
 # Check if sam records are a pair.
 def is_pair(record: SamRecord, mate: SamRecord)-> bool:
@@ -35,39 +42,6 @@ def mate_dist_penalty(mate1_pos: int, mate2_pos: int):
         return 0.0
     else:
         return UNPAIRED_PENALTY
-
-# Get barcode as key for comparisons between lines containing specially-formatted fastq records.
-def special_fastq_record_cmp_key(line: str)-> str:
-    return line[0:16]
-
-# Special FASTQ file format:
-#   barcode id read1 qual1 read2 qual2
-#
-# `read1` and `qual1` have the barcode bases/quals trimmed.
-def read_special_fastq(fqx_file)-> tuple[list[FastQRecord], list[FastQRecord]]:
-    records = sorted([line for line in fqx_file], key=special_fastq_record_cmp_key)
-
-    fq1 = list[FastQRecord]()
-    fq2 = list[FastQRecord]()
-
-    for record in records:
-        # values has the following format:
-        # [0]: barcode [1]: id [2]: read1 [3]: qual1 [4]: read2 [5]: qual2
-        values = record.split(" ")
-        barcode = util.encode_barcode(values[0])
-
-        fq1.append(FastQRecord(barcode, values[1], values[2], values[3]))
-        fq2.append(FastQRecord(barcode, values[1], values[4], values[5]))
-
-    return (fq1, fq2)
-
-# Get indices of next barcode group, based on last index of previous (assumes record list sorted by barcode)
-def seek_next_barcode_group(records: list[FastQRecord], start_idx: int)-> tuple[int, int]:
-    idx = start_idx
-    barcode = records[idx].barcode
-    while idx < len(records) and records[idx].barcode == barcode:
-        idx += 1
-    return (start_idx, idx)
 
 def get_alignments(bwa: seq_bwa.BWA, mate1: FastQRecord, mate2: FastQRecord)-> list[SamRecord]:
     alignments: EasyAlignmentPairs = bwa_mem_mate_sw(bwa, mate1.read, mate2.read, 25)
@@ -296,48 +270,53 @@ def sam_record_string(record: SamRecord, mate: SamRecord, read_group_id: str, bx
     out_str += "\n"
     return out_str
 
+# TODO: Refactor & extend this to handle multiple cases for file inputs and threads:
+# Threads:
+# - 1 thread per file (or file pair), with threading handled outside this function [existing/submitted behaviour]
+# - multiple threads per file (or file pair) [behaviour available in EMA]
+# File inputs: (DONE as of 2020-12-26)
+# - one (or multiple) specially-formatted (via EMA preprocessing) fastq file(s) [existing/submitted behaviour; -s -x flags]
+# - two preprocessed & sorted standard fastq files (one for each end of paired-end reads) [EMA -1 and -2 flags]
+# - one preprocessed & sorted interleaved standard fastq file (i.e. both ends of paired-end reads subsequently) [EMA -1 flag]
+# Future considerations:
+# - why not multiple preprocessed & sorted interleaved standard fastq files? seems viable; maybe it's not relevant
+# - why not multiple pairs of standard fastq files? seems viable (tho input would get slightly messy); maybe it's not relevant
+# - taking one of the above from standard input? --> sorting is required. but what if we assumed it was sorted?
+#   - if we assumed it was sorted, we could do interleaved or specially-formatted inputs. that seems sensible.
+#     - specially-formatted inputs assume that they aren't sorted. this could still be from stdin (so that the interim file
+#       doesn't need to be written to disk; and for general flexibility), but it wouldn't be able to process it as a stream
+#       very effectively, because it would need to wait for the end of the file until it could do anything with it.
 
-
-def find_clouds_and_align_standard_fastq(bwa, fq1_file, fq2_file, out_file, apply_opt, tech, threads_per_file, read_group, bx_index):
-    # TODO Future work: implement this. Will be largely the same as find_clouds_and_align_special_fastq
-    raise NotImplementedError()
-
-def find_clouds_and_align_special_fastq(bwa: seq_bwa.BWA, fqx_file, out_file, apply_opt: bool, tech: PlatformProfile, threads_per_file: int, read_group: str, bx_index: str):
-    fq1, fq2 = read_special_fastq(fqx_file)
-    assert(len(fq1) == len(fq2))
-
+# Thoughts/Notes:
+# Everything in the function is local to the thread, except input/output files, and possibly some global variables.
+# I think the only global variable that is really not threadsafe is the Cloud constructor, which increments a global.
+# I don't know if there's any way around it, but there probably is if seq provides some form of mutex.
+# mutex: https://docs.seq-lang.org/stdlib/threading.html i.e. "import threading" and then "mutex = threading.Lock()"
+# followed by "mutex.acquire()" and "mutex.release()".
+def find_clouds_and_align(bwa: seq_bwa.BWA, in_reader: InputReader, out_file, apply_opt: bool, tech: PlatformProfile, threads_per_file: int, read_group: str, bx_index: str):
     # TODO Future work: parallelize across threads_per_file threads
-    MAX_CLOUDS_PER_BC_LARGE = 10000000
-    MAX_CLOUDS_PER_BC_SMALL = 1000000
-    EM_ITERS = 5
-    INDEL_RATE = 0.0001
-    CLIP_RATE = 0.03
 
     max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
     read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:].split()[0]
     init_alignment_score_weights(tech.error_rate, INDEL_RATE, CLIP_RATE)
     init_bwa_pes() # from bwabridge
 
-    bc_group_end_idx = 0
-    total_records = len(fq1)
-    while bc_group_end_idx < total_records:
+    while True:
+        ### Get barcode group (first value of returned tuple is False if there is no more input)
+        barcode_group_data = in_reader.get_next_barcode_group()
+        good = barcode_group_data[0]
+        barcode = barcode_group_data[1]
+        read_pairs = barcode_group_data[2]
+        if not good:
+            break
+
+        ### Initialize
         sam_dict = SamDict(tech)
         clouds = list[Cloud]()
-
-        ### Get barcode group
-        fq1_bc_group_range = seek_next_barcode_group(fq1, bc_group_end_idx)
-        fq2_bc_group_range = seek_next_barcode_group(fq2, bc_group_end_idx)
-
-        assert(fq1_bc_group_range == fq2_bc_group_range)
-        bc_range = fq1_bc_group_range # once verified as equal, simplify name
-
-        bc_group_end_idx = bc_range[1] # update end index for outer loop
-
-        barcode = fq1[bc_range[0]].barcode # get actual barcode
-        worth_doing_full_em = (bc_range[1] - bc_range[0]) >= 30
+        worth_doing_full_em = len(read_pairs) >= 30
 
         ### Generate list of alignments for reads in this barcode group
-        sam_records = [aln for mate1, mate2 in zip(fq1[bc_range[0]:bc_range[1]], fq2[bc_range[0]:bc_range[1]]) for aln in get_alignments(bwa, mate1, mate2)]
+        sam_records = [aln for mate1, mate2 in read_pairs for aln in get_alignments(bwa, mate1, mate2)]
         sam_records = sorted(sam_records, key=sam_record_cmp_key)
 
         ### Find and process clouds
