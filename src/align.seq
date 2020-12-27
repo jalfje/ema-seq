@@ -9,6 +9,7 @@ from data import *
 from samdict import *
 from bwabridge import *
 from input_reader import InputReader
+from output_writer import OutputWriter
 import util
 
 UNPAIRED_PENALTY: float = -15.0
@@ -286,24 +287,17 @@ def sam_record_string(record: SamRecord, mate: SamRecord, read_group_id: str, bx
 #     - specially-formatted inputs assume that they aren't sorted. this could still be from stdin (so that the interim file
 #       doesn't need to be written to disk; and for general flexibility), but it wouldn't be able to process it as a stream
 #       very effectively, because it would need to wait for the end of the file until it could do anything with it.
-
-# Thoughts/Notes:
-# Everything in the function is local to the thread, except input/output files, and possibly some global variables.
-# I think the only global variable that is really not threadsafe is the Cloud constructor, which increments a global.
-# I don't know if there's any way around it, but there probably is if seq provides some form of mutex.
-# mutex: https://docs.seq-lang.org/stdlib/threading.html i.e. "import threading" and then "mutex = threading.Lock()"
-# followed by "mutex.acquire()" and "mutex.release()".
-def find_clouds_and_align(bwa: seq_bwa.BWA, in_reader: InputReader, out_file, apply_opt: bool, tech: PlatformProfile, threads_per_file: int, read_group: str, bx_index: str):
+def find_clouds_and_align(bwa: seq_bwa.BWA, reader: InputReader, writer: OutputWriter, apply_opt: bool, tech: PlatformProfile, threads_per_file: int, read_group: str, bx_index: str):
     # TODO Future work: parallelize across threads_per_file threads
 
     max_clouds = MAX_CLOUDS_PER_BC_LARGE if tech.many_clouds else MAX_CLOUDS_PER_BC_SMALL
     read_group_id = str() if len(read_group) == 0 else read_group[read_group.index("ID:")+3:].split()[0]
-    init_alignment_score_weights(tech.error_rate, INDEL_RATE, CLIP_RATE)
-    init_bwa_pes() # from bwabridge
+    init_alignment_score_weights(tech.error_rate, INDEL_RATE, CLIP_RATE) # threadsafe. for SamRecord.score_alignment.
+    init_bwa_pes() # threadsafe. for bwabridge.
 
     while True:
         ### Get barcode group (first value of returned tuple is False if there is no more input)
-        barcode_group_data = in_reader.get_next_barcode_group()
+        barcode_group_data = reader.get_next_barcode_group() # threadsafe
         good = barcode_group_data[0]
         barcode = barcode_group_data[1]
         read_pairs = barcode_group_data[2]
@@ -440,6 +434,7 @@ def find_clouds_and_align(bwa: seq_bwa.BWA, in_reader: InputReader, out_file, ap
             if mate is not None:
                 mate.visited = True
 
-            out_file.write(sam_record_string(record, mate, read_group_id, bx_index))
-            out_file.write(sam_record_string(mate, record, read_group_id, bx_index))
+            read_string = sam_record_string(record, mate, read_group_id, bx_index)
+            mate_string = sam_record_string(mate, record, read_group_id, bx_index)
+            writer.write_pair(read_string, mate_string)
 

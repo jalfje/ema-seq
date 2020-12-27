@@ -13,6 +13,7 @@ from bio.fastq import FASTQ
 from techs import PlatformProfile, platform_profiles
 from align import *
 from input_reader import InputReader
+from output_writer import OutputWriter
 import util
 
 KB = 1024
@@ -228,6 +229,7 @@ def run_align(options: list[str]):
 
     # Open SAM file or direct to stdout
     out_file = sys.stdout if len(out) == 0 else open(out, "w")
+    writer = OutputWriter(out_file)
 
     util.write_sam_header(out_file, bwa.p[0], rg, program_arguments, VERSION)
 
@@ -240,25 +242,24 @@ def run_align(options: list[str]):
         for filename in unused_opts:
             with open(filename, "r") as input_file:
                 reader = InputReader("special", tech, input_file, None)
-                find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, 1, rg, bx_index)
+                find_clouds_and_align(bwa, reader, writer, apply_opt, tech, 1, rg, bx_index)
     elif len(fqx) != 0: # special
         # TODO: Test
         # TODO: Figure out if this works with stdin, and if not, how to make it work
         with open(fqx, "r") as input_file:
             reader = InputReader("special", tech, input_file, None)
-            find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, t, rg, bx_index)
+            find_clouds_and_align(bwa, reader, writer, apply_opt, tech, t, rg, bx_index)
     elif len(fq2) == 0: # interleaved single-file standard fastq
         # TODO: Test
         # TODO: Figure out if this works with stdin, and if not, how to make it work
         with open(fq1, "r") as input_file:
             reader = InputReader("interleaved", tech, input_file, None)
-            find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, t, rg, bx_index)
+            find_clouds_and_align(bwa, reader, writer, apply_opt, tech, t, rg, bx_index)
     else: # standard fastq; one file for reads and one file for read mates
         # TODO: Test
-        with open(fq1, "r") as read_file:
-            with open(fq2, "r") as mate_file:
-                reader = InputReader("normal", tech, read_file, mate_file)
-                find_clouds_and_align(bwa, reader, out_file, apply_opt, tech, t, rg, bx_index)
+        with open(fq1, "r") as read_file, open(fq2, "r") as mate_file:
+            reader = InputReader("normal", tech, read_file, mate_file)
+            find_clouds_and_align(bwa, reader, writer, apply_opt, tech, t, rg, bx_index)
 
     out_file.close()
     exit_success()

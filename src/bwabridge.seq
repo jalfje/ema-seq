@@ -5,6 +5,7 @@ from fixes import *
 
 import math
 import util
+import threading
 from bio.bwa import *
 
 MEM_MAPQ_COEF: float = 30.0
@@ -168,24 +169,36 @@ cimport free(ptr[byte])
 
 # NOTE: Only used in a constant context (i.e. after initialization, never changed.)
 _pes: ptr[mem_pestat_t] = ptr[mem_pestat_t](0)
+
+_init_bwa_pes_mtx = threading.Lock()
+_init_bwa_pes_flag = False
+# Threadsafe; only runs once
 def init_bwa_pes():
-    global _pes
+    global _init_bwa_pes_mtx
+    global _init_bwa_pes_flag
+    with _init_bwa_pes_mtx:
+        if _init_bwa_pes_flag:
+            return
+        _init_bwa_pes_flag = True
 
-    NUM_PES = 4
+        global _pes
 
-    pes_n_bytes = NUM_PES * gc.sizeof[mem_pestat_t]()
-    _pes = ptr[mem_pestat_t](gc.alloc_atomic(pes_n_bytes))
+        NUM_PES = 4
 
-    ptr[i32](ptr[byte](_pes) + 0 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
-    ptr[i32](ptr[byte](_pes) + 1 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(0)
-    ptr[i32](ptr[byte](_pes) + 2 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
-    ptr[i32](ptr[byte](_pes) + 3 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+        pes_n_bytes = NUM_PES * gc.sizeof[mem_pestat_t]()
+        _pes = ptr[mem_pestat_t](gc.alloc_atomic(pes_n_bytes))
 
-    for idx in range(4):
-        ptr[i32](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 0 * 4)[0] = i32(-35)
-        ptr[i32](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 1 * 4)[0] = i32(500)
-        ptr[float](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 3 * 4)[0] = float(200.0)
-        ptr[float](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 5 * 4)[0] = float(100.0)
+        ptr[i32](ptr[byte](_pes) + 0 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+        ptr[i32](ptr[byte](_pes) + 1 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(0)
+        ptr[i32](ptr[byte](_pes) + 2 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+        ptr[i32](ptr[byte](_pes) + 3 * gc.sizeof[mem_pestat_t]() + 2 * 4)[0] = i32(1)
+
+        for idx in range(4):
+            ptr[i32](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 0 * 4)[0] = i32(-35)
+            ptr[i32](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 1 * 4)[0] = i32(500)
+            ptr[float](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 3 * 4)[0] = float(200.0)
+            ptr[float](ptr[byte](_pes) + idx * gc.sizeof[mem_pestat_t]() + 5 * 4)[0] = float(100.0)
+
 
 # Marshals array of mem_alnreg_t objects from c-managed memory to garbage-collected memory.
 # Takes a pointer to a single mem_alnreg_v item.

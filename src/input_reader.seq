@@ -47,11 +47,8 @@ class InputReader:
 
     def get_next_barcode_group(self: InputReader)-> tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]]:
         out = (False, 0, list[tuple[FastQRecord, FastQRecord]]())
-        self._mtx.acquire()
-        try:
+        with self._mtx:
             out = self._read_func(self)
-        finally:
-            self._mtx.release()
         return out
 
     def _read_special_fastq_group(self: InputReader)-> tuple[bool, int, list[tuple[FastQRecord, FastQRecord]]]:

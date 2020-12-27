@@ -1,0 +1,18 @@
+from fixes import *
+## output_writer.seq
+# Similar to input_reader, provides the OutputWriter class, which enables threadsafe output handling.
+
+import threading
+
+class OutputWriter:
+    _mtx: threading.Lock
+    _file: File
+
+    def __init__(self: OutputWriter, out_file: File):
+        self._mtx = threading.Lock()
+        self._file = out_file
+
+    def write_pair(self: OutputWriter, read: str, mate: str):
+        with self._mtx:
+            self._file.write(read)
+            self._file.write(mate)

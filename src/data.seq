@@ -3,6 +3,7 @@ from fixes import *
 # Various data class and type definitions
 
 import math
+import threading
 from bwabridge import SingleReadAlignment
 
 # Global variable for simplicity; consistent with C version. Not ideal coding practices here.
@@ -34,8 +35,8 @@ class FastQRecord:
 
 ### Clouds
 
-
-_cloud_id = id_generator()
+_cloud_id_mtx = threading.Lock()
+_cloud_id = 0
 class Cloud:
     exp_cov: float
     weight: float
@@ -56,8 +57,12 @@ class Cloud:
         self.lo = 0
         self.parent = None
         self.child = None
-        self.ident = next(_cloud_id)
         self.bad = False
+        global _cloud_id_mtx
+        global _cloud_id
+        with _cloud_id_mtx:
+            _cloud_id += 1
+            self.ident = _cloud_id
 
 def normalize_cloud_probabilities(clouds: list[Cloud]):
     # Find parent clouds, and normalize all child clouds based on that
@@ -89,22 +94,34 @@ LOG_CLIP_SCORE: float = 0.0
 LOG10_MISMATCH_SCORE: float = 0.0
 LOG10_INDEL_SCORE: float = 0.0
 LOG10_CLIP_SCORE: float = 0.0
-def init_alignment_score_weights(error_rate: float, indel_rate: float, clip_rate: float):
-    global LOG_MATCH_SCORE
-    global LOG_MISMATCH_SCORE
-    global LOG_INDEL_SCORE
-    global LOG_CLIP_SCORE
-    global LOG10_MISMATCH_SCORE
-    global LOG10_INDEL_SCORE
-    global LOG10_CLIP_SCORE
 
-    LOG_MATCH_SCORE = math.log(1.0 - error_rate)
-    LOG_MISMATCH_SCORE = math.log(error_rate)
-    LOG_INDEL_SCORE = math.log(indel_rate)
-    LOG_CLIP_SCORE = math.log(clip_rate)
-    LOG10_MISMATCH_SCORE = math.log10(error_rate)
-    LOG10_INDEL_SCORE = math.log10(indel_rate)
-    LOG10_CLIP_SCORE = math.log10(clip_rate)
+_init_alignment_score_weights_mtx = threading.Lock()
+_init_alignment_score_weights_flag = False
+# Threadsafe; only runs once
+def init_alignment_score_weights(error_rate: float, indel_rate: float, clip_rate: float):
+    global _init_alignment_score_weights_mtx
+    global _init_alignment_score_weights_flag
+    with _init_alignment_score_weights_mtx:
+        if _init_alignment_score_weights_flag:
+            return
+        _init_alignment_score_weights_flag = True
+
+        global LOG_MATCH_SCORE
+        global LOG_MISMATCH_SCORE
+        global LOG_INDEL_SCORE
+        global LOG_CLIP_SCORE
+        global LOG10_MISMATCH_SCORE
+        global LOG10_INDEL_SCORE
+        global LOG10_CLIP_SCORE
+
+        LOG_MATCH_SCORE = math.log(1.0 - error_rate)
+        LOG_MISMATCH_SCORE = math.log(error_rate)
+        LOG_INDEL_SCORE = math.log(indel_rate)
+        LOG_CLIP_SCORE = math.log(clip_rate)
+        LOG10_MISMATCH_SCORE = math.log10(error_rate)
+        LOG10_INDEL_SCORE = math.log10(indel_rate)
+        LOG10_CLIP_SCORE = math.log10(clip_rate)
+
 
 class Alt:
     chrom: str

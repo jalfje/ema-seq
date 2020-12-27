@@ -28,12 +28,3 @@ def zip4(a, b, c, d):
     bi.destroy()
     ci.destroy()
     di.destroy()
-
-# Generates an incrementing value.
-# Workaround for the fact that classes can't have class variables.
-def id_generator():
-    id_ = 0
-    while True:
-        yield id_
-        id_ += 1
-
